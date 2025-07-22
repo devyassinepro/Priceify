@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Table existante pour les sessions Shopify
+model Session {
+  id          String   @id
+  shop        String
+  state       String
+  isOnline    Boolean  @default(false)
+  scope       String?
+  expires     DateTime?
+  accessToken String
+  userId      BigInt?
+  firstName   String?
+  lastName    String?
+  email       String?
+  accountOwner Boolean  @default(false)
+  locale      String?
+  collaborator Boolean? @default(false)
+  emailVerified Boolean? @default(false)
+}
+
+// Table pour l'historique des modifications (version simple)
+model PricingHistory {
+  id              String   @id @default(cuid())
+  shop            String
+  productId       String
+  variantId       String
+  productTitle    String
+  variantTitle    String
+  actionType      String   // 'percentage', 'fixed', 'add', 'subtract'
+  adjustmentValue Float
+  oldPrice        Float
+  newPrice        Float
+  userEmail       String?
+  createdAt       DateTime @default(now())
+  
+  @@index([shop])
+  @@index([createdAt])
+  @@map("pricing_history")
+}
+
+// Nouveau modèle pour les abonnements
+model Subscription {
+  id              String   @id @default(cuid())
+  shop            String   @unique
+  planName        String   // 'free', 'standard', 'pro'
+  status          String   // 'active', 'cancelled', 'pending'
+  subscriptionId  String?  // ID de l'abonnement Shopify
+  currentPeriodEnd DateTime?
+  usageCount      Int      @default(0)
+  usageLimit      Int      @default(20)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([shop])
+  @@map("subscriptions")
+}
