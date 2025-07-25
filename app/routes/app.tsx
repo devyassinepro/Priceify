@@ -4,9 +4,7 @@ import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
-import { getOrCreateSubscription } from "../models/subscription.server"; // ← Ajoutez cette ligne
-
-
+import { getOrCreateSubscription } from "../models/subscription.server";
 import { authenticate } from "../shopify.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
@@ -22,18 +20,53 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
-
 export default function App() {
   const { apiKey, subscription } = useLoaderData<typeof loader>();
 
+  const getNavTitle = (planName: string, usageCount: number, usageLimit: number) => {
+    if (planName === 'free') {
+      const remaining = usageLimit - usageCount;
+      return `⭐ Upgrade (${remaining} left)`;
+    }
+    return '💳 Billing';
+  };
+
+  const usagePercentage = subscription.usageLimit > 0 
+    ? (subscription.usageCount / subscription.usageLimit) * 100 
+    : 0;
+
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
-        <NavMenu>
-        <Link to="/app" rel="home">🏠 Dashboard</Link>
-        <Link to="/app/pricing">💰 Prix Dynamiques</Link>
-        <Link to="/app/history">📋 Historique</Link>
+      <NavMenu>
+        <Link to="/app" rel="home">
+          🏠 Dashboard
+        </Link>
+        <Link to="/app/pricing">
+          💰 Dynamic Pricing
+          {usagePercentage >= 100 && (
+            <span style={{ 
+              marginLeft: "0.5rem", 
+              fontSize: "0.75rem", 
+              color: "#d73502" 
+            }}>
+              (Limit Reached)
+            </span>
+          )}
+        </Link>
+        <Link to="/app/history">
+          📋 History
+          {subscription.usageCount > 0 && (
+            <span style={{ 
+              marginLeft: "0.5rem", 
+              fontSize: "0.75rem", 
+              color: "#008060" 
+            }}>
+              ({subscription.usageCount})
+            </span>
+          )}
+        </Link>
         <Link to="/app/billing">
-          {subscription.planName === 'free' ? '⭐ Upgrade' : '💳 Facturation'}
+          {getNavTitle(subscription.planName, subscription.usageCount, subscription.usageLimit)}
         </Link>
       </NavMenu>
       <Outlet />

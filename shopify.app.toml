@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "pricefy"
 handle = "pricefy-1"
-application_url = "https://boutique-trackback-firmware-rip.trycloudflare.com"
+application_url = "https://competitors-april-tc-observe.trycloudflare.com"
 embedded = true
 
 [build]
@@ -27,7 +27,7 @@ api_version = "2025-07"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://boutique-trackback-firmware-rip.trycloudflare.com/auth/callback", "https://boutique-trackback-firmware-rip.trycloudflare.com/auth/shopify/callback", "https://boutique-trackback-firmware-rip.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://competitors-april-tc-observe.trycloudflare.com/auth/callback", "https://competitors-april-tc-observe.trycloudflare.com/auth/shopify/callback", "https://competitors-april-tc-observe.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false
