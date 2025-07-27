@@ -1,6 +1,18 @@
+// app/lib/validators.ts - Updated validators for product-based quota
+
 export interface PricingValidationResult {
   isValid: boolean;
   errors: string[];
+}
+
+export interface ProductQuotaValidationResult extends PricingValidationResult {
+  quotaInfo?: {
+    currentProducts: number;
+    newProducts: number;
+    totalAfter: number;
+    limit: number;
+    wouldExceed: boolean;
+  };
 }
 
 export function validatePricingData(
@@ -15,8 +27,9 @@ export function validatePricingData(
     errors.push("Please select at least one product to modify");
   }
   
-  if (selectedProducts.length > 100) {
-    errors.push("Maximum 100 products can be modified at once");
+  // Updated limit check - now based on reasonable bulk operation limits
+  if (selectedProducts.length > 1000) {
+    errors.push("Maximum 1000 products can be modified at once");
   }
   
   // Validate adjustment type
@@ -70,6 +83,51 @@ export function validatePricingData(
   };
 }
 
+/**
+ * NEW: Validate product quota limits - checks unique products instead of price changes
+ */
+export function validateProductQuota(
+  selectedProducts: any[],
+  currentProductsModified: string[],
+  usageLimit: number
+): ProductQuotaValidationResult {
+  const errors: string[] = [];
+  
+  if (!selectedProducts || selectedProducts.length === 0) {
+    errors.push("Please select at least one product to modify");
+    return { isValid: false, errors };
+  }
+  
+  // Extract product IDs from selection
+  const selectedProductIds = selectedProducts.map(p => p.id);
+  
+  // Find which products are NEW (not already modified this period)
+  const newProducts = selectedProductIds.filter(id => !currentProductsModified.includes(id));
+  const totalAfter = currentProductsModified.length + newProducts.length;
+  
+  const quotaInfo = {
+    currentProducts: currentProductsModified.length,
+    newProducts: newProducts.length,
+    totalAfter,
+    limit: usageLimit,
+    wouldExceed: totalAfter > usageLimit
+  };
+  
+  if (quotaInfo.wouldExceed) {
+    errors.push(
+      `This selection would modify ${newProducts.length} new product(s), ` +
+      `bringing your total to ${totalAfter} of ${usageLimit} allowed products this month. ` +
+      `Please select fewer products or upgrade your plan.`
+    );
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
+    quotaInfo
+  };
+}
+
 export function validateProductData(product: any): boolean {
   if (!product.id || !product.title) return false;
   if (!product.variants || product.variants.length === 0) return false;
@@ -83,21 +141,22 @@ export function validateProductData(product: any): boolean {
 
 export function validateBulkOperation(
   selectedProducts: any[], 
-  userPlan: string
-): PricingValidationResult {
+  userPlan: string,
+  currentProductsModified: string[] = []
+): ProductQuotaValidationResult {
   const errors: string[] = [];
   
-  // Plan-specific limits
-  const planLimits = {
-    free: 10,
-    standard: 100,
-    pro: 1000
+  // Plan-specific bulk operation limits (not quota limits)
+  const bulkLimits = {
+    free: 50,      // Can select up to 50 products in one operation
+    standard: 250, // Can select up to 250 products in one operation  
+    pro: 1000      // Can select up to 1000 products in one operation
   };
   
-  const maxProducts = planLimits[userPlan as keyof typeof planLimits] || 10;
+  const maxBulkProducts = bulkLimits[userPlan as keyof typeof bulkLimits] || 50;
   
-  if (selectedProducts.length > maxProducts) {
-    errors.push(`Your ${userPlan} plan allows maximum ${maxProducts} products per bulk operation`);
+  if (selectedProducts.length > maxBulkProducts) {
+    errors.push(`Your ${userPlan} plan allows maximum ${maxBulkProducts} products per bulk operation`);
   }
   
   // Validate each product has required data
@@ -105,6 +164,8 @@ export function validateBulkOperation(
   if (invalidProducts.length > 0) {
     errors.push(`${invalidProducts.length} product(s) have invalid or missing data`);
   }
+  
+  // Note: Quota validation should be done separately with validateProductQuota
   
   return {
     isValid: errors.length === 0,
@@ -169,5 +230,56 @@ export function validateDateRange(startDate?: Date, endDate?: Date): PricingVali
   return {
     isValid: errors.length === 0,
     errors
+  };
+}
+
+/**
+ * Helper to get quota warning messages based on usage
+ */
+export function getQuotaWarningMessage(
+  currentProducts: number,
+  limit: number,
+  planName: string
+): { level: 'none' | 'warning' | 'critical', message: string } {
+  const percentage = (currentProducts / limit) * 100;
+  
+  if (percentage >= 100) {
+    return {
+      level: 'critical',
+      message: `You've reached your limit of ${limit} unique products this month. Upgrade to continue modifying prices.`
+    };
+  }
+  
+  if (percentage >= 80) {
+    return {
+      level: 'warning',
+      message: `You've modified ${currentProducts} of ${limit} allowed products (${percentage.toFixed(1)}%). Consider upgrading soon.`
+    };
+  }
+  
+  return {
+    level: 'none',
+    message: `${currentProducts} of ${limit} products modified this month.`
+  };
+}
+
+/**
+ * Calculate the impact of a bulk selection on quota
+ */
+export function calculateQuotaImpact(
+  selectedProductIds: string[],
+  currentProductsModified: string[]
+): {
+  newProducts: string[];
+  alreadyModified: string[];
+  quotaImpact: number;
+} {
+  const newProducts = selectedProductIds.filter(id => !currentProductsModified.includes(id));
+  const alreadyModified = selectedProductIds.filter(id => currentProductsModified.includes(id));
+  
+  return {
+    newProducts,
+    alreadyModified,
+    quotaImpact: newProducts.length
   };
 }

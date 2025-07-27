@@ -1,9 +1,11 @@
+// app/lib/plans.ts - Updated plans with product-based limits
+
 export interface Plan {
   name: string;
   displayName: string;
   price: number;
   currency: string;
-  usageLimit: number;
+  usageLimit: number; // Now represents unique products, not price changes
   features: string[];
   recommended?: boolean;
   billingInterval?: string;
@@ -15,10 +17,11 @@ export const PLANS: Record<string, Plan> = {
     displayName: "Free",
     price: 0,
     currency: "USD",
-    usageLimit: 20,
+    usageLimit: 20, // 20 unique products per month
     billingInterval: "EVERY_30_DAYS",
     features: [
-      "20 price modifications per month",
+      "Modify prices for up to 20 unique products per month",
+      "Unlimited price changes per product (within the month)",
       "4 modification types (%, fixed, +, -)",
       "Basic modification history",
       "Product search and filtering",
@@ -29,12 +32,13 @@ export const PLANS: Record<string, Plan> = {
   standard: {
     name: "standard",
     displayName: "Standard",
-    price: 9.99,
+    price: 4.99,
     currency: "USD",
-    usageLimit: 500,
+    usageLimit: 500, // 500 unique products per month
     billingInterval: "EVERY_30_DAYS",
     features: [
-      "500 price modifications per month",
+      "Modify prices for up to 500 unique products per month",
+      "Unlimited price changes per product (within the month)",
       "All modification types and bulk operations",
       "Complete modification history with filters",
       "Advanced product filters and search",
@@ -47,15 +51,16 @@ export const PLANS: Record<string, Plan> = {
   
   pro: {
     name: "pro",
-    displayName: "Professional",
-    price: 19.99,
+    displayName: "Professional", 
+    price: 9.99,
     currency: "USD",
-    usageLimit: 99999,
+    usageLimit: 99999, // Unlimited products
     billingInterval: "EVERY_30_DAYS",
     features: [
-      "Unlimited price modifications",
+      "Modify prices for unlimited products",
+      "Unlimited price changes per product",
       "Bulk operations on 1000+ products",
-      "Advanced analytics and profit insights",
+      "Advanced analytics and profit insights", 
       "API access for custom integrations",
       "Priority support (24h response time)",
       "Custom pricing rules and automation",
@@ -72,8 +77,9 @@ export function getPlan(planName: string): Plan {
 export function canUseFeature(subscription: any, feature: string): boolean {
   const plan = getPlan(subscription?.planName || 'free');
   
-  // Check usage limits first
-  if (subscription && subscription.usageCount >= plan.usageLimit) {
+  // Check product limits (not individual price change limits)
+  const uniqueProductsModified = (subscription?.uniqueProductsModified as string[])?.length || 0;
+  if (uniqueProductsModified >= plan.usageLimit) {
     return false;
   }
   
@@ -87,7 +93,7 @@ export function canUseFeature(subscription: any, feature: string): boolean {
       return plan.name === 'pro';
     case 'api_access':
       return plan.name === 'pro';
-    case 'unlimited_modifications':
+    case 'unlimited_products':
       return plan.name === 'pro';
     case 'priority_support':
       return plan.name !== 'free';
@@ -118,14 +124,13 @@ export function getUpgradeRecommendation(subscription: any): {
   recommendedPlan: string;
 } {
   const currentPlan = getPlan(subscription?.planName || 'free');
-  const usagePercentage = subscription 
-    ? (subscription.usageCount / subscription.usageLimit) * 100 
-    : 0;
+  const uniqueProductsModified = (subscription?.uniqueProductsModified as string[])?.length || 0;
+  const usagePercentage = (uniqueProductsModified / subscription.usageLimit) * 100;
 
   if (currentPlan.name === 'free' && usagePercentage > 80) {
     return {
       shouldUpgrade: true,
-      reason: "You're approaching your monthly limit. Upgrade to continue modifying prices without interruption.",
+      reason: `You've modified ${uniqueProductsModified} of ${subscription.usageLimit} allowed products this month. Upgrade to modify more products without interruption.`,
       recommendedPlan: 'standard'
     };
   }
@@ -133,7 +138,7 @@ export function getUpgradeRecommendation(subscription: any): {
   if (currentPlan.name === 'standard' && usagePercentage > 90) {
     return {
       shouldUpgrade: true,
-      reason: "You're a power user! Upgrade to Pro for unlimited modifications and advanced features.",
+      reason: `You're a power user! Upgrade to Pro for unlimited product modifications and advanced features.`,
       recommendedPlan: 'pro'
     };
   }
@@ -142,5 +147,29 @@ export function getUpgradeRecommendation(subscription: any): {
     shouldUpgrade: false,
     reason: "Your current plan meets your needs.",
     recommendedPlan: currentPlan.name
+  };
+}
+
+/**
+ * Helper function to estimate if a bulk operation would exceed limits
+ */
+export function estimateProductUsage(
+  currentProductsModified: string[], 
+  newProductIds: string[], 
+  usageLimit: number
+): {
+  wouldExceed: boolean;
+  newProductsCount: number;
+  totalAfter: number;
+  remaining: number;
+} {
+  const newProducts = newProductIds.filter(id => !currentProductsModified.includes(id));
+  const totalAfter = currentProductsModified.length + newProducts.length;
+  
+  return {
+    wouldExceed: totalAfter > usageLimit,
+    newProductsCount: newProducts.length,
+    totalAfter,
+    remaining: Math.max(0, usageLimit - totalAfter)
   };
 }
