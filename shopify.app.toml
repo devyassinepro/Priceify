@@ -1,9 +1,9 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "c4ecbd02835e553520eec62af072c81a"
-name = "pricefy"
+name = "Weenify - Bulk Price Editor"
 handle = "pricefy-1"
-application_url = "https://gamma-smallest-swimming-philip.trycloudflare.com"
+application_url = "https://reducing-soviet-punch-propose.trycloudflare.com"
 embedded = true
 
 [build]
@@ -14,20 +14,41 @@ automatically_update_urls_on_dev = true
 [webhooks]
 api_version = "2025-07"
 
-  [[webhooks.subscriptions]]
-  topics = [ "app/uninstalled" ]
-  uri = "/webhooks/app/uninstalled"
+[[webhooks.subscriptions]]
+topics = [ "app/uninstalled" ]
+uri = "/webhooks/app/uninstalled"
 
-  [[webhooks.subscriptions]]
-  topics = [ "app/scopes_update" ]
-  uri = "/webhooks/app/scopes_update"
+[[webhooks.subscriptions]]
+topics = [ "app/scopes_update" ]
+uri = "/webhooks/app/scopes_update"
+
+[[webhooks.subscriptions]]
+topics = [ "customers/data_request" ]
+uri = "/webhooks/customers/data_request"
+
+[[webhooks.subscriptions]]
+topics = [ "customers/redact" ]
+uri = "/webhooks/customers/redact"
+
+[[webhooks.subscriptions]]
+topics = [ "shop/redact" ]
+uri = "/webhooks/shop/redact"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://gamma-smallest-swimming-philip.trycloudflare.com/auth/callback", "https://gamma-smallest-swimming-philip.trycloudflare.com/auth/shopify/callback", "https://gamma-smallest-swimming-philip.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://reducing-soviet-punch-propose.trycloudflare.com/auth/callback", "https://reducing-soviet-punch-propose.trycloudflare.com/auth/shopify/callback", "https://reducing-soviet-punch-propose.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false
+
+[app_proxy]
+url = "https://votre-domaine.com"
+subpath = "apps/dynamic-pricing"
+
+# URLs légales pour l'App Store
+privacy_policy_url = "https://votre-domaine.com/privacy-policy"
+terms_of_service_url = "https://votre-domaine.com/terms-of-service"
+support_url = "https://votre-domaine.com/support"
