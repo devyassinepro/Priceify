@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "Weenify - Bulk Price Editor"
 handle = "pricefy-1"
-application_url = "https://reducing-soviet-punch-propose.trycloudflare.com"
+application_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app"
 embedded = true
 
 [build]
@@ -39,16 +39,16 @@ uri = "/webhooks/shop/redact"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://reducing-soviet-punch-propose.trycloudflare.com/auth/callback", "https://reducing-soviet-punch-propose.trycloudflare.com/auth/shopify/callback", "https://reducing-soviet-punch-propose.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://priceify-shopify-app-t2jfu.ondigitalocean.app/auth/callback", "https://priceify-shopify-app-t2jfu.ondigitalocean.app/auth/shopify/callback", "https://priceify-shopify-app-t2jfu.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false
 
 [app_proxy]
-url = "https://votre-domaine.com"
+url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app"
 subpath = "apps/dynamic-pricing"
 
 # URLs légales pour l'App Store
-privacy_policy_url = "https://votre-domaine.com/privacy-policy"
-terms_of_service_url = "https://votre-domaine.com/terms-of-service"
-support_url = "https://votre-domaine.com/support"
+privacy_policy_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app/privacy-policy"
+terms_of_service_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app/terms-of-service"
+support_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app/support"
