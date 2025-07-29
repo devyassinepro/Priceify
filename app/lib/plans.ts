@@ -32,7 +32,7 @@ export const PLANS: Record<string, Plan> = {
   standard: {
     name: "standard",
     displayName: "Standard",
-    price: 4.99,
+    price: 4.99, // Match the price from your email
     currency: "USD",
     usageLimit: 500, // 500 unique products per month
     billingInterval: "EVERY_30_DAYS",
@@ -52,7 +52,7 @@ export const PLANS: Record<string, Plan> = {
   pro: {
     name: "pro",
     displayName: "Professional", 
-    price: 9.99,
+    price: 9.99, // Updated to match your configuration
     currency: "USD",
     usageLimit: 99999, // Unlimited products
     billingInterval: "EVERY_30_DAYS",
@@ -69,7 +69,7 @@ export const PLANS: Record<string, Plan> = {
     ]
   }
 };
-
+// Rest of the file remains the same
 export function getPlan(planName: string): Plan {
   return PLANS[planName] || PLANS.free;
 }

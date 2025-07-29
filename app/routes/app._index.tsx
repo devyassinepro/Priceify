@@ -31,19 +31,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const subscriptionStats = await getSubscriptionStats(session.shop);
   const plan = getPlan(subscriptionStats.planName);
+
+   // Check for upgrade success parameter
+   const url = new URL(request.url);
+   const upgraded = url.searchParams.get("upgraded") === "true";
   
-  return json({
+   return json({
     shop: session.shop,
     subscription: subscriptionStats,
     plan,
     usagePercentage: (subscriptionStats.usageCount / subscriptionStats.usageLimit) * 100,
     remainingProducts: subscriptionStats.usageLimit - subscriptionStats.usageCount,
     uniqueProductCount: subscriptionStats.uniqueProductCount || 0,
+    showUpgradeSuccess: upgraded,
   });
 };
 
 export default function Index() {
-  const { shop, subscription, plan, usagePercentage, remainingProducts, uniqueProductCount } = useLoaderData<typeof loader>();
+  const { 
+    shop, 
+    subscription, 
+    plan, 
+    usagePercentage, 
+    remainingProducts, 
+    uniqueProductCount,
+    showUpgradeSuccess 
+  } = useLoaderData<typeof loader>();
 
   const isNewUser = subscription.usageCount === 0;
   const isNearLimit = usagePercentage > 80;
@@ -52,8 +65,19 @@ export default function Index() {
   return (
     <Page title="Dashboard" subtitle={`Welcome back to Dynamic Pricing for ${shop}`}>
       <Layout>
+        {/* Upgrade Success Banner */}
+        {showUpgradeSuccess && (
+          <Layout.Section>
+            <Banner title="🎉 Upgrade Successful!" tone="success">
+              <Text as="p">
+                Welcome to {plan.displayName}! You can now modify up to {plan.usageLimit === 99999 ? 'unlimited' : plan.usageLimit} products per month.
+              </Text>
+            </Banner>
+          </Layout.Section>
+        )}
+
         {/* Welcome/Status Banner */}
-        {isNewUser ? (
+        {isNewUser && !showUpgradeSuccess ? (
           <Layout.Section>
             <Banner title="Welcome to Dynamic Pricing!" tone="success">
               <Text as="p">
@@ -62,7 +86,7 @@ export default function Index() {
               </Text>
             </Banner>
           </Layout.Section>
-        ) : isNearLimit ? (
+        ) : isNearLimit && !showUpgradeSuccess ? (
           <Layout.Section>
             <Banner 
               title={hasReachedLimit ? "Product Limit Reached" : "Approaching Product Limit"}

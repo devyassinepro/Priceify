@@ -48,95 +48,100 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   // Development mode: Simulate upgrade without Shopify Billing API
-  if (process.env.NODE_ENV === "development") {
-    try {
-      await updateSubscription(session.shop, {
-        planName: selectedPlan.name,
-        status: "active",
-        usageLimit: selectedPlan.usageLimit,
-        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      });
-      
-      return json({ 
-        success: true,
-        message: `Successfully upgraded to ${selectedPlan.displayName}!`,
-        redirectToApp: true
-      });
-    } catch (error: any) {
-      return json({ 
-        error: "Error during simulated upgrade",
-        details: error.message 
-      });
-    }
-  }
-  
-  // Production mode: Use Shopify API
+if (process.env.NODE_ENV === "development") {
   try {
-    const response = await admin.graphql(`
-      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
-        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
-          appSubscription {
-            id
-            name
-            status
-            currentPeriodEnd
-            test
-          }
-          confirmationUrl
-          userErrors {
-            field
-            message
-          }
-        }
-      }
-    `, {
-      variables: {
-        name: `Dynamic Pricing ${selectedPlan.displayName}`,
-        returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing/callback`,
-        test: true,
-        lineItems: [{
-          plan: {
-            appRecurringPricingDetails: {
-              interval: selectedPlan.billingInterval || "EVERY_30_DAYS",
-              price: { 
-                amount: selectedPlan.price, 
-                currencyCode: selectedPlan.currency
-              }
-            }
-          }
-        }]
-      }
+    await updateSubscription(session.shop, {
+      planName: selectedPlan.name,
+      status: "active",
+      usageLimit: selectedPlan.usageLimit,
+      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
     
-    const data = await response.json();
-    
-    if (data.data?.appSubscriptionCreate?.userErrors?.length > 0) {
-      return json({ 
-        error: "Subscription creation failed",
-        details: data.data.appSubscriptionCreate.userErrors 
-      });
-    }
-    
-    if (data.data?.appSubscriptionCreate?.confirmationUrl) {
-      await updateSubscription(session.shop, {
-        status: "pending",
-        planName: selectedPlan.name,
-      });
-      
-      return json({ 
-        confirmationUrl: data.data.appSubscriptionCreate.confirmationUrl 
-      });
-    }
-    
-    return json({ error: "Unable to create subscription" });
-    
-  } catch (error: any) {
-    console.error("Billing error:", error);
     return json({ 
-      error: "System error during subscription creation",
+      success: true,
+      message: `Successfully upgraded to ${selectedPlan.displayName}!`,
+      redirectToApp: true
+    });
+  } catch (error: any) {
+    return json({ 
+      error: "Error during simulated upgrade",
       details: error.message 
     });
   }
+}
+ // Production mode: Use Shopify API
+ try {
+  const response = await admin.graphql(`
+    mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
+      appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
+        appSubscription {
+          id
+          name
+          status
+          currentPeriodEnd
+          test
+        }
+        confirmationUrl
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `, {
+    variables: {
+      name: `Dynamic Pricing ${selectedPlan.displayName}`,
+      returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing/callback`,
+      test: process.env.NODE_ENV !== "production", // true pour test, false pour prod
+      lineItems: [{
+        plan: {
+          appRecurringPricingDetails: {
+            interval: selectedPlan.billingInterval || "EVERY_30_DAYS",
+            price: { 
+              amount: selectedPlan.price.toString(), // Convertir en string
+              currencyCode: selectedPlan.currency
+            }
+          }
+        }
+      }]
+    }
+  });
+  
+  const data = await response.json();
+  
+  console.log("📊 Subscription creation response:", JSON.stringify(data, null, 2));
+  
+  if (data.data?.appSubscriptionCreate?.userErrors?.length > 0) {
+    console.error("❌ Subscription errors:", data.data.appSubscriptionCreate.userErrors);
+    return json({ 
+      error: "Subscription creation failed",
+      details: data.data.appSubscriptionCreate.userErrors 
+    });
+  }
+  
+  if (data.data?.appSubscriptionCreate?.confirmationUrl) {
+    // Store pending subscription info
+    await updateSubscription(session.shop, {
+      status: "pending",
+      planName: selectedPlan.name,
+    });
+    
+    console.log("✅ Subscription created, redirecting to:", data.data.appSubscriptionCreate.confirmationUrl);
+    
+    return json({ 
+      confirmationUrl: data.data.appSubscriptionCreate.confirmationUrl 
+    });
+  }
+  
+  return json({ error: "Unable to create subscription" });
+  
+} catch (error: any) {
+  console.error("💥 Billing error:", error);
+  return json({ 
+    error: "System error during subscription creation",
+    details: error.message 
+  });
+}
 };
 
 export default function Billing() {

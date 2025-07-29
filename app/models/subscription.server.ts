@@ -40,6 +40,7 @@ export async function getOrCreateSubscription(shop: string) {
   }
 }
 
+
 export async function updateSubscription(shop: string, data: {
   planName?: string;
   status?: string;
@@ -49,13 +50,24 @@ export async function updateSubscription(shop: string, data: {
   uniqueProductsModified?: string[];
   totalPriceChanges?: number;
 }) {
-  return await db.subscription.update({
+  console.log(`🔄 Updating subscription for ${shop}:`, JSON.stringify(data, null, 2));
+  
+  const result = await db.subscription.update({
     where: { shop },
     data: {
       ...data,
       updatedAt: new Date(),
     },
   });
+  
+  console.log(`✅ Subscription updated successfully:`, {
+    shop: result.shop,
+    planName: result.planName,
+    usageLimit: result.usageLimit,
+    status: result.status
+  });
+  
+  return result;
 }
 
 
