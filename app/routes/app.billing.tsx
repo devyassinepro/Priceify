@@ -40,6 +40,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const planName = formData.get("planName") as string;
+  const testAction = formData.get("testAction") as string; // Add test actions
+
   
   const selectedPlan = PLANS[planName];
   
@@ -48,27 +50,52 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   // Development mode: Simulate upgrade without Shopify Billing API
-if (process.env.NODE_ENV === "development") {
-  try {
-    await updateSubscription(session.shop, {
-      planName: selectedPlan.name,
-      status: "active",
-      usageLimit: selectedPlan.usageLimit,
-      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    });
+
+  // Development mode: Enhanced testing
+  if (process.env.NODE_ENV === "development") {
+    console.log(`🧪 DEV MODE: Testing subscription upgrade to ${selectedPlan.displayName}`);
     
-    return json({ 
-      success: true,
-      message: `Successfully upgraded to ${selectedPlan.displayName}!`,
-      redirectToApp: true
-    });
-  } catch (error: any) {
-    return json({ 
-      error: "Error during simulated upgrade",
-      details: error.message 
-    });
+    // Simulate different scenarios for testing
+    if (testAction === "simulate_failure") {
+      return json({ 
+        error: "Simulated billing failure for testing",
+        details: "This is a test error - subscription was not created" 
+      });
+    }
+    
+    if (testAction === "simulate_delay") {
+      // Simulate processing delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    try {
+      await updateSubscription(session.shop, {
+        planName: selectedPlan.name,
+        status: "active",
+        usageLimit: selectedPlan.usageLimit,
+        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        // Reset usage for testing
+        usageCount: testAction === "reset_usage" ? 0 : undefined,
+        uniqueProductsModified: testAction === "reset_usage" ? [] : undefined,
+      });
+      
+      console.log(`✅ DEV MODE: Successfully upgraded to ${selectedPlan.displayName}`);
+      console.log(`📊 New limits: ${selectedPlan.usageLimit} products/month`);
+      
+      return json({ 
+        success: true,
+        message: `🧪 DEV MODE: Successfully upgraded to ${selectedPlan.displayName}!`,
+        redirectToApp: true,
+        devMode: true
+      });
+    } catch (error: any) {
+      console.error("❌ DEV MODE: Upgrade simulation failed:", error);
+      return json({ 
+        error: "Dev mode upgrade simulation failed",
+        details: error.message 
+      });
+    }
   }
-}
  // Production mode: Use Shopify API
  try {
   const response = await admin.graphql(`

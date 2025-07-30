@@ -49,6 +49,7 @@ export async function updateSubscription(shop: string, data: {
   currentPeriodEnd?: Date;
   uniqueProductsModified?: string[];
   totalPriceChanges?: number;
+  usageCount?: number; // ← Add this missing field
 }) {
   console.log(`🔄 Updating subscription for ${shop}:`, JSON.stringify(data, null, 2));
   
@@ -64,6 +65,7 @@ export async function updateSubscription(shop: string, data: {
     shop: result.shop,
     planName: result.planName,
     usageLimit: result.usageLimit,
+    usageCount: result.usageCount, // ← Also log this
     status: result.status
   });
   
