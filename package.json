@@ -1,5 +1,5 @@
 {
-  "name": "Weenify - Bulk Price Editor",
+  "name": "PriceBoost - Bulk Price Editor",
   "private": true,
   "scripts": {
     "build": "remix vite:build",

@@ -4,8 +4,8 @@ import { useLoaderData } from "@remix-run/react";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   return json({
     lastUpdated: "2025-07-28",
-    appName: "Weenify - Bulk Price Editor",
-    contactEmail: "contact@weenify.io"
+    appName: "PriceBoost - Bulk Price Editor",
+    contactEmail: "devyassinepro@gmail.com"
   });
 };
 
