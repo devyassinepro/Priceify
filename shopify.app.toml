@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
 handle = "PriceBoost"
-application_url = "https://yellow-helpful-quotations-forum.trycloudflare.com"
+application_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app"
 embedded = true
 
 [build]
@@ -39,14 +39,14 @@ uri = "/webhooks/shop/redact"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://yellow-helpful-quotations-forum.trycloudflare.com/auth/callback", "https://yellow-helpful-quotations-forum.trycloudflare.com/auth/shopify/callback", "https://yellow-helpful-quotations-forum.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://priceify-shopify-app-t2jfu.ondigitalocean.app/auth/callback", "https://priceify-shopify-app-t2jfu.ondigitalocean.app/auth/shopify/callback", "https://priceify-shopify-app-t2jfu.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false
 
 # [app_proxy]
-# url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app"
-# subpath = "apps/dynamic-pricing"
+url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app"
+subpath = "apps/dynamic-pricing"
 
 # URLs légales pour l'App Store
 privacy_policy_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app/privacy-policy"
