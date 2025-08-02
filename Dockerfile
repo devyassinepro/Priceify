@@ -6,8 +6,6 @@ EXPOSE 3000
 WORKDIR /app
 
 ENV NODE_ENV=production
-# ENV NODE_ENV=development
-
 
 COPY package.json package-lock.json* ./
 
