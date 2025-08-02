@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
 handle = "PriceBoost"
-application_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app"
+application_url = "https://priceboost-app-l9vn6.ondigitalocean.app"
 embedded = true
 
 [build]
@@ -39,16 +39,16 @@ uri = "/webhooks/shop/redact"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://priceify-shopify-app-t2jfu.ondigitalocean.app/auth/callback", "https://priceify-shopify-app-t2jfu.ondigitalocean.app/auth/shopify/callback", "https://priceify-shopify-app-t2jfu.ondigitalocean.app/api/auth/callback"]
+redirect_urls = ["https://priceboost-app-l9vn6.ondigitalocean.app/auth/callback", "https://priceboost-app-l9vn6.ondigitalocean.app/auth/shopify/callback", "https://priceboost-app-l9vn6.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false
 
 # [app_proxy]
-url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app"
+url = "https://priceboost-app-l9vn6.ondigitalocean.app"
 subpath = "apps/dynamic-pricing"
 
 # URLs légales pour l'App Store
-privacy_policy_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app/privacy-policy"
-terms_of_service_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app/terms-of-service"
-support_url = "https://priceify-shopify-app-t2jfu.ondigitalocean.app/support"
+privacy_policy_url = "https://priceboost-app-l9vn6.ondigitalocean.app/privacy-policy"
+terms_of_service_url = "https://priceboost-app-l9vn6.ondigitalocean.app/terms-of-service"
+support_url = "https://priceboost-app-l9vn6.ondigitalocean.app/support"
