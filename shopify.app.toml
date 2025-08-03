@@ -1,9 +1,7 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
-
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
 handle = "PriceBoost"
-application_url = "https://priceboost-app-l9vn6.ondigitalocean.app"
+application_url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
 embedded = true
 
 [build]
@@ -14,6 +12,7 @@ automatically_update_urls_on_dev = true
 [webhooks]
 api_version = "2025-07"
 
+# ✅ REQUIRED: App lifecycle webhooks
 [[webhooks.subscriptions]]
 topics = [ "app/uninstalled" ]
 uri = "/webhooks/app/uninstalled"
@@ -22,6 +21,7 @@ uri = "/webhooks/app/uninstalled"
 topics = [ "app/scopes_update" ]
 uri = "/webhooks/app/scopes_update"
 
+# ✅ REQUIRED: GDPR compliance webhooks (MANDATORY for App Store)
 [[webhooks.subscriptions]]
 topics = [ "customers/data_request" ]
 uri = "/webhooks/customers/data_request"
@@ -35,11 +35,13 @@ topics = [ "shop/redact" ]
 uri = "/webhooks/shop/redact"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://priceboost-app-l9vn6.ondigitalocean.app/auth/callback", "https://priceboost-app-l9vn6.ondigitalocean.app/auth/shopify/callback", "https://priceboost-app-l9vn6.ondigitalocean.app/api/auth/callback"]
+redirect_urls = [
+    "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback",
+    "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback",
+    "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false
@@ -49,6 +51,6 @@ url = "https://priceboost-app-l9vn6.ondigitalocean.app"
 subpath = "apps/dynamic-pricing"
 
 # URLs légales pour l'App Store
-privacy_policy_url = "https://priceboost-app-l9vn6.ondigitalocean.app/privacy-policy"
-terms_of_service_url = "https://priceboost-app-l9vn6.ondigitalocean.app/terms-of-service"
-support_url = "https://priceboost-app-l9vn6.ondigitalocean.app/support"
+privacy_policy_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/privacy-policy"
+terms_of_service_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/terms-of-service"
+support_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/support"

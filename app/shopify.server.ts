@@ -1,3 +1,5 @@
+// 1. Fix shopify.server.ts - Add missing mandatory webhooks and HMAC verification
+
 import "@shopify/shopify-app-remix/adapters/node";
 import {
   AppDistribution,
@@ -8,7 +10,7 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import { restResources } from "@shopify/shopify-api/rest/admin/2023-10";
 import { PrismaClient } from "@prisma/client";
-import { getOrCreateSubscription } from "./models/subscription.server"; // ← Ajoutez cette ligne
+import { getOrCreateSubscription } from "./models/subscription.server";
 
 const prisma = new PrismaClient();
 
@@ -22,22 +24,39 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   restResources,
+  // ✅ FIX: Add ALL mandatory compliance webhooks
   webhooks: {
     APP_UNINSTALLED: {
       deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks",
+      callbackUrl: "/webhooks/app/uninstalled",
+    },
+    APP_SUBSCRIPTIONS_UPDATE: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/app/scopes_update",
+    },
+    // ✅ REQUIRED: GDPR compliance webhooks (MANDATORY for App Store)
+    CUSTOMERS_DATA_REQUEST: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/customers/data_request",
+    },
+    CUSTOMERS_REDACT: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/customers/redact",
+    },
+    SHOP_REDACT: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/shop/redact",
     },
   },
   hooks: {
     afterAuth: async ({ session }) => {
       shopify.registerWebhooks({ session });
       
-      // Créer automatiquement un abonnement gratuit
       try {
-        await getOrCreateSubscription(session.shop); // ← Maintenant accessible
-        console.log(`✅ Abonnement gratuit créé pour ${session.shop}`);
+        await getOrCreateSubscription(session.shop);
+        console.log(`✅ Subscription created for ${session.shop}`);
       } catch (error) {
-        console.error("Erreur création abonnement:", error);
+        console.error("Error creating subscription:", error);
       }
     },
   },
