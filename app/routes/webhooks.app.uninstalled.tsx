@@ -3,15 +3,24 @@ import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, session, topic } = await authenticate.webhook(request);
+  try {
+    // ✅ FIX: Use authenticate.webhook for HMAC verification (REQUIRED)
+    const { shop, session, topic } = await authenticate.webhook(request);
 
-  console.log(`Received ${topic} webhook for ${shop}`);
+    console.log(`📱 Received ${topic} webhook for ${shop}`);
 
-  // Webhook requests can trigger multiple times and after an app has already been uninstalled.
-  // If this webhook already ran, the session may have been deleted previously.
-  if (session) {
-    await db.session.deleteMany({ where: { shop } });
+    // Clean up session data immediately
+    if (session) {
+      await db.session.deleteMany({ where: { shop } });
+      console.log(`🗑️ Deleted session data for ${shop}`);
+    }
+    
+    // Note: Don't delete all data here - Shopify will send SHOP_REDACT webhook 
+    // 48 hours later for GDPR compliance
+    
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    console.error("❌ App uninstall webhook error:", error);
+    return new Response("Webhook processing failed", { status: 500 });
   }
-
-  return new Response();
 };
