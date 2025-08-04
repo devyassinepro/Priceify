@@ -8,10 +8,11 @@ embedded = true
 include_config_on_deploy = true
 automatically_update_urls_on_dev = true
 
-[webhooks]
-api_version = "2025-01"
 
-# ✅ CORRECT: Individual webhook subscriptions (MANDATORY for App Store)
+[webhooks]
+api_version = "2025-10"
+
+# ✅ Topics individuels avec API 2025-10
 [[webhooks.subscriptions]]
 topics = [ "app/uninstalled" ]
 uri = "/webhooks/app/uninstalled"
@@ -20,33 +21,22 @@ uri = "/webhooks/app/uninstalled"
 topics = [ "app/scopes_update" ]
 uri = "/webhooks/app/scopes_update"
 
-# ✅ REQUIRED: GDPR compliance webhooks (MANDATORY for App Store)
 [[webhooks.subscriptions]]
-topics = [ "customers/data_request" ]
-uri = "/webhooks/customers/data_request"
-
-[[webhooks.subscriptions]]
-topics = [ "customers/redact" ]
-uri = "/webhooks/customers/redact"
-
-[[webhooks.subscriptions]]
-topics = [ "shop/redact" ]
-uri = "/webhooks/shop/redact"
+compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+uri = "/webhooks/gdpr"
 
 [access_scopes]
 scopes = "read_products,write_products"
 
 [auth]
 # ✅ FIXED: Only the correct redirect URL
-redirect_urls = [
-    "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback"
-]
+redirect_urls = ["https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false
 
 # ✅ FIXED: App proxy configuration
-[app_proxy]
+#[app_proxy]
 url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
 subpath = "apps/priceboost"
 

@@ -24,13 +24,13 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   restResources,
-  // ✅ FIX: Add ALL mandatory compliance webhooks
+  // ✅ FIX: Add ALL mandatory compliance webhooks (constantes avec underscores)
   webhooks: {
     APP_UNINSTALLED: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/app/uninstalled",
     },
-    APP_SUBSCRIPTIONS_UPDATE: {
+    APP_SCOPES_UPDATE: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/app/scopes_update",
     },
