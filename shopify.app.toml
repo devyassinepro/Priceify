@@ -12,27 +12,9 @@ automatically_update_urls_on_dev = true
 [webhooks]
 api_version = "2025-07"
 
-# ✅ REQUIRED: App lifecycle webhooks
 [[webhooks.subscriptions]]
-topics = [ "app/uninstalled" ]
-uri = "/webhooks/app/uninstalled"
-
-[[webhooks.subscriptions]]
-topics = [ "app/scopes_update" ]
-uri = "/webhooks/app/scopes_update"
-
-# ✅ REQUIRED: GDPR compliance webhooks (MANDATORY for App Store)
-[[webhooks.subscriptions]]
-topics = [ "customers/data_request" ]
-uri = "/webhooks/customers/data_request"
-
-[[webhooks.subscriptions]]
-topics = [ "customers/redact" ]
-uri = "/webhooks/customers/redact"
-
-[[webhooks.subscriptions]]
-topics = [ "shop/redact" ]
-uri = "/webhooks/shop/redact"
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact", "app/uninstalled"]
+uri = "https://pricebooster-app-hkfq8.ondigitalocean.app/webhooks"
 
 [access_scopes]
 scopes = "read_products,write_products"
