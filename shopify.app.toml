@@ -21,8 +21,17 @@ uri = "/webhooks/app/uninstalled"
 topics = [ "app/scopes_update" ]
 uri = "/webhooks/app/scopes_update"
 
+# ✅ GDPR compliance webhooks - ALL pointing to same endpoint
 [[webhooks.subscriptions]]
-compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+topics = [ "customers/data_request" ]
+uri = "/webhooks/gdpr"
+
+[[webhooks.subscriptions]]
+topics = [ "customers/redact" ]
+uri = "/webhooks/gdpr"
+
+[[webhooks.subscriptions]]
+topics = [ "shop/redact" ]
 uri = "/webhooks/gdpr"
 
 [access_scopes]
