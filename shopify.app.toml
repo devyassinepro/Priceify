@@ -1,6 +1,8 @@
+# shopify.app.toml - Update webhooks to use single GDPR endpoint
+
 client_id = "c4ecbd02835e553520eec62af072c81a"
-name = "PriceBoost - Bulk Price Editor"
-handle = "PriceBoost"
+name = "Dynamic Pricing - Bulk Price Editor"
+handle = "pricefy-1"
 application_url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
 embedded = true
 
@@ -8,11 +10,10 @@ embedded = true
 include_config_on_deploy = true
 automatically_update_urls_on_dev = true
 
-
 [webhooks]
-api_version = "2025-10"
+api_version = "2025-01"
 
-# ✅ Topics individuels avec API 2025-10
+# ✅ App lifecycle webhooks
 [[webhooks.subscriptions]]
 topics = [ "app/uninstalled" ]
 uri = "/webhooks/app/uninstalled"
@@ -38,18 +39,18 @@ uri = "/webhooks/gdpr"
 scopes = "read_products,write_products"
 
 [auth]
-# ✅ FIXED: Only the correct redirect URL
-redirect_urls = ["https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
+redirect_urls = [
+  "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback"
+]
 
 [pos]
 embedded = false
 
-# ✅ FIXED: App proxy configuration
-#[app_proxy]
+[app_proxy]
 url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
-subpath = "apps/priceboost"
+subpath = "apps/dynamic-pricing"
 
-# ✅ REQUIRED: Legal URLs for App Store approval
+# Legal URLs for App Store approval  
 privacy_policy_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/privacy-policy"
 terms_of_service_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/terms-of-service"
 support_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/support"

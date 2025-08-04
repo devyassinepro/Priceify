@@ -30,22 +30,21 @@ const shopify = shopifyApp({
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/app/uninstalled",
     },
-    APP_SCOPES_UPDATE: {
+    APP_SUBSCRIPTIONS_UPDATE: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/app/scopes_update",
     },
-    // ✅ REQUIRED: GDPR compliance webhooks (MANDATORY for App Store)
     CUSTOMERS_DATA_REQUEST: {
       deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/customers/data_request",
+      callbackUrl: "/webhooks/gdpr",
     },
     CUSTOMERS_REDACT: {
       deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/customers/redact",
+      callbackUrl: "/webhooks/gdpr",
     },
     SHOP_REDACT: {
       deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/shop/redact",
+      callbackUrl: "/webhooks/gdpr",
     },
   },
   hooks: {
