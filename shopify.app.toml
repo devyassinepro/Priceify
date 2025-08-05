@@ -1,7 +1,7 @@
 # shopify.app.toml - Update webhooks to use single GDPR endpoint
 
 client_id = "c4ecbd02835e553520eec62af072c81a"
-name = "Dynamic Pricing - Bulk Price Editor"
+name = "PriceBoost - Bulk Price Editor"
 handle = "pricefy-1"
 application_url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
 embedded = true
@@ -46,7 +46,7 @@ redirect_urls = [
 [pos]
 embedded = false
 
-[app_proxy]
+# [app_proxy]
 url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
 subpath = "apps/dynamic-pricing"
 

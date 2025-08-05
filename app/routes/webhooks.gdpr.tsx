@@ -1,94 +1,57 @@
-// 1. Create: app/routes/webhooks.gdpr.tsx - Debug version with detailed logging
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  console.log("🔄 GDPR webhook received - starting processing...");
-  
-  // Log request details for debugging
-  const url = new URL(request.url);
-  const headers = Object.fromEntries(request.headers.entries());
-  
-  console.log("📨 Request details:");
-  console.log("- URL:", url.toString());
-  console.log("- Method:", request.method);
-  console.log("- Headers:", JSON.stringify(headers, null, 2));
+  console.log("🔄 GDPR webhook received");
   
   try {
-    // ✅ This should automatically handle HMAC validation and return 401 if invalid
-    console.log("🔐 Attempting HMAC validation...");
+    // ✅ CRITICAL FIX: Use authenticate.webhook which handles HMAC validation
+    // This will throw an error (likely 401) if HMAC is invalid
     const { shop, payload, topic } = await authenticate.webhook(request);
     
-    console.log("✅ HMAC validation successful!");
-    console.log("- Shop:", shop);
-    console.log("- Topic:", topic);
-    console.log("- Payload:", JSON.stringify(payload, null, 2));
+    console.log(`✅ HMAC validated - Topic: ${topic}, Shop: ${shop}`);
     
     // Handle different GDPR webhook types
     switch (topic) {
       case "CUSTOMERS_DATA_REQUEST":
-        console.log("📧 Processing customer data request...");
         await handleCustomerDataRequest(shop, payload);
         break;
         
       case "CUSTOMERS_REDACT":
-        console.log("🗑️ Processing customer redact request...");
         await handleCustomerRedact(shop, payload);
         break;
         
       case "SHOP_REDACT":
-        console.log("🏪 Processing shop redact request...");
         await handleShopRedact(shop, payload);
         break;
         
       default:
-        console.log(`⚠️ Unknown GDPR webhook topic: ${topic}`);
+        console.log(`⚠️ Unknown GDPR topic: ${topic}`);
     }
     
-    console.log("✅ GDPR webhook processing completed successfully");
-    return new Response(null, { 
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    console.log("✅ GDPR webhook processed successfully");
+    return new Response(null, { status: 200 });
     
   } catch (error: any) {
-    console.error("❌ GDPR webhook error details:");
-    console.error("- Error message:", error.message);
-    console.error("- Error stack:", error.stack);
-    console.error("- Error name:", error.name);
+    console.error("❌ GDPR webhook error:", error.message);
     
-    // Check if this is an HMAC validation error
-    if (error.message?.toLowerCase().includes('hmac') || 
-        error.message?.toLowerCase().includes('unauthorized') ||
-        error.message?.toLowerCase().includes('invalid') ||
-        error.name === 'Unauthorized') {
-      
+    // ✅ CRITICAL: Check if this is an authentication/HMAC error
+    // Shopify's authenticate.webhook throws specific errors for invalid HMAC
+    if (
+      error.message?.toLowerCase().includes('unauthorized') ||
+      error.message?.toLowerCase().includes('hmac') ||
+      error.message?.toLowerCase().includes('invalid') ||
+      error.status === 401 ||
+      error.name === 'Unauthorized'
+    ) {
       console.log("🚨 HMAC validation failed - returning 401");
-      return new Response(JSON.stringify({
-        error: "Unauthorized",
-        message: "Invalid HMAC signature"
-      }), { 
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      return new Response("Unauthorized", { status: 401 });
     }
     
-    // For other errors, return 500
-    console.log("💥 Server error - returning 500");
-    return new Response(JSON.stringify({
-      error: "Internal Server Error",
-      message: error.message
-    }), { 
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // For any other errors, still return 500 but with proper error handling
+    console.error("💥 Server error:", error);
+    return new Response("Internal Server Error", { status: 500 });
   }
 };
 
@@ -97,7 +60,7 @@ async function handleCustomerDataRequest(shop: string, payload: any) {
     const customerId = payload.customer?.id;
     const customerEmail = payload.customer?.email;
     
-    console.log(`📊 Customer data request - ID: ${customerId}, Email: ${customerEmail}`);
+    console.log(`📊 Customer data request for shop: ${shop}`);
     
     if (!customerId && !customerEmail) {
       console.log("⚠️ No customer identifier provided");
@@ -115,7 +78,8 @@ async function handleCustomerDataRequest(shop: string, payload: any) {
     console.log(`📈 Found ${customerData.length} records for customer`);
     
     // In production: generate secure download link and email customer
-    console.log("✅ Customer data request processed successfully");
+    // For now, just log that we processed it
+    console.log("✅ Customer data request processed");
     
   } catch (error) {
     console.error("❌ Error in handleCustomerDataRequest:", error);
@@ -128,7 +92,7 @@ async function handleCustomerRedact(shop: string, payload: any) {
     const customerId = payload.customer?.id;
     const customerEmail = payload.customer?.email;
     
-    console.log(`🗑️ Customer redact request - ID: ${customerId}, Email: ${customerEmail}`);
+    console.log(`🗑️ Customer redact request for shop: ${shop}`);
     
     if (!customerId && !customerEmail) {
       console.log("⚠️ No customer identifier provided");
@@ -144,7 +108,7 @@ async function handleCustomerRedact(shop: string, payload: any) {
     });
     
     console.log(`🗑️ Deleted ${deleteResult.count} records for customer`);
-    console.log("✅ Customer redact completed successfully");
+    console.log("✅ Customer redact completed");
     
   } catch (error) {
     console.error("❌ Error in handleCustomerRedact:", error);
@@ -165,7 +129,7 @@ async function handleShopRedact(shop: string, payload: any) {
     const totalDeleted = deleteOperations.reduce((sum, result) => sum + result.count, 0);
     
     console.log(`🗑️ Deleted ${totalDeleted} total records for shop ${shop}`);
-    console.log("✅ Shop redact completed successfully");
+    console.log("✅ Shop redact completed");
     
   } catch (error) {
     console.error("❌ Error in handleShopRedact:", error);

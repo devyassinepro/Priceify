@@ -3,11 +3,13 @@ import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  console.log("🔄 App uninstall webhook received");
+  
   try {
-    // ✅ FIX: Use authenticate.webhook for HMAC verification (REQUIRED)
+    // ✅ Use authenticate.webhook for proper HMAC validation
     const { shop, session, topic } = await authenticate.webhook(request);
-
-    console.log(`📱 Received ${topic} webhook for ${shop}`);
+    
+    console.log(`📱 App uninstalled for shop: ${shop}`);
 
     // Clean up session data immediately
     if (session) {
@@ -15,12 +17,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log(`🗑️ Deleted session data for ${shop}`);
     }
     
-    // Note: Don't delete all data here - Shopify will send SHOP_REDACT webhook 
-    // 48 hours later for GDPR compliance
+    // Note: Don't delete subscription/history data here
+    // Shopify will send SHOP_REDACT webhook later for GDPR compliance
     
+    console.log("✅ App uninstall webhook processed successfully");
     return new Response(null, { status: 200 });
-  } catch (error) {
-    console.error("❌ App uninstall webhook error:", error);
-    return new Response("Webhook processing failed", { status: 500 });
+    
+  } catch (error: any) {
+    console.error("❌ App uninstall webhook error:", error.message);
+    
+    // Check for HMAC validation errors
+    if (
+      error.message?.toLowerCase().includes('unauthorized') ||
+      error.message?.toLowerCase().includes('hmac') ||
+      error.status === 401
+    ) {
+      console.log("🚨 HMAC validation failed - returning 401");
+      return new Response("Unauthorized", { status: 401 });
+    }
+    
+    // For other errors, return 500
+    return new Response("Internal Server Error", { status: 500 });
   }
 };
