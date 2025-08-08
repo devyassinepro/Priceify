@@ -107,49 +107,48 @@ try {
     interval: selectedPlan.billingInterval
   });
   
-    // Ensure we have the correct app URL
-    const appUrl = process.env.SHOPIFY_APP_URL || 'https://pricebooster-app-hkfq8.ondigitalocean.app';
-    const returnUrl = `${appUrl}/app`;
-    
-    console.log(`🔗 Return URL: ${returnUrl}`);
-    
-  
-  // Use this in your GraphQL mutation:
-  const response = await admin.graphql(`
-    mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
-      appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
-        appSubscription {
-          id
-          name
-          status
-          currentPeriodEnd
-          test
-        }
-        confirmationUrl
-        userErrors {
-          field
-          message
-        }
+ // Ensure we have the correct app URL
+ const appUrl = process.env.SHOPIFY_APP_URL || 'https://pricebooster-app-hkfq8.ondigitalocean.app';
+ const returnUrl = `${appUrl}/app/billing-return`;
+ 
+console.log(`🔗 Return URL being set: ${returnUrl}`);
+
+// Use this in your GraphQL mutation:
+const response = await admin.graphql(`
+  mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
+    appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
+      appSubscription {
+        id
+        name
+        status
+        currentPeriodEnd
+        test
+      }
+      confirmationUrl
+      userErrors {
+        field
+        message
       }
     }
-  `, {
-    variables: {
-      name: `Dynamic Pricing ${selectedPlan.displayName}`,
-      returnUrl: returnUrl, // Now points to /app instead of /app/billing/callback
-      test: process.env.NODE_ENV !== "production",
-      lineItems: [{
-        plan: {
-          appRecurringPricingDetails: {
-            interval: selectedPlan.billingInterval || "EVERY_30_DAYS",
-            price: { 
-              amount: selectedPlan.price.toFixed(2),
-              currencyCode: selectedPlan.currency
-            }
+  }
+`, {
+  variables: {
+    name: `Dynamic Pricing ${selectedPlan.displayName}`,
+    returnUrl: returnUrl, // Now points to /app/billing-return
+    test: process.env.NODE_ENV !== "production",
+    lineItems: [{
+      plan: {
+        appRecurringPricingDetails: {
+          interval: selectedPlan.billingInterval || "EVERY_30_DAYS",
+          price: { 
+            amount: selectedPlan.price.toFixed(2),
+            currencyCode: selectedPlan.currency
           }
         }
-      }]
-    }
-  });
+      }
+    }]
+  }
+});
     
   const data = await response.json();
   

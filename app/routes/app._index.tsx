@@ -1,6 +1,6 @@
 // app/routes/app._index.tsx - Updated dashboard for product-based quota
 
-import { json, LoaderFunctionArgs, redirect } from "@remix-run/node";
+import { json, LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, Link } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import {
@@ -24,128 +24,128 @@ import {
   CheckCircleIcon,
   PlanIcon,
 } from "@shopify/polaris-icons";
-import { getSubscriptionStats, updateSubscription } from "../models/subscription.server";
+import { getSubscriptionStats } from "../models/subscription.server";
 import { getPlan, formatPriceDisplay } from "../lib/plans";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const subscriptionStats = await getSubscriptionStats(session.shop);
 
   const plan = getPlan(subscriptionStats.planName);
-    // Import PLANS at the top of your file
-    const { PLANS } = await import("../lib/plans");
-    const { updateSubscription } = await import("../models/subscription.server");
-    // ✅ ADD THIS: Handle billing callback if charge_id is present
+    // // Import PLANS at the top of your file
+    // const { PLANS } = await import("../lib/plans");
+    // const { updateSubscription } = await import("../models/subscription.server");
+    // // ✅ ADD THIS: Handle billing callback if charge_id is present
     const url = new URL(request.url);
-    const charge_id = url.searchParams.get("charge_id");
+    // const charge_id = url.searchParams.get("charge_id");
 
    // Check for upgrade success parameter
    const upgraded = url.searchParams.get("upgraded") === "true";
   
-   if (charge_id) {
-    console.log(`🔄 =================BILLING CALLBACK DETECTED================`);
-    console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
-    console.log(`🏪 Shop: ${session.shop}`);
-    console.log(`💳 Charge ID: ${charge_id}`);
-    console.log(`🔗 Full URL: ${url.toString()}`);
+  //  if (charge_id) {
+  //   console.log(`🔄 =================BILLING CALLBACK DETECTED================`);
+  //   console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+  //   console.log(`🏪 Shop: ${session.shop}`);
+  //   console.log(`💳 Charge ID: ${charge_id}`);
+  //   console.log(`🔗 Full URL: ${url.toString()}`);
     
-    try {
-      // Process the billing callback right here
-      console.log(`🔍 Fetching subscription details for charge: ${charge_id}`);
+  //   try {
+  //     // Process the billing callback right here
+  //     console.log(`🔍 Fetching subscription details for charge: ${charge_id}`);
       
-      const response = await admin.graphql(`
-        query GetAppSubscription($id: ID!) {
-          node(id: $id) {
-            ... on AppSubscription {
-              id
-              name
-              status
-              currentPeriodEnd
-              test
-              lineItems {
-                plan {
-                  pricingDetails {
-                    ... on AppRecurringPricing {
-                      price {
-                        amount
-                        currencyCode
-                      }
-                      interval
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      `, {
-        variables: { id: `gid://shopify/AppSubscription/${charge_id}` }
-      });
+  //     const response = await admin.graphql(`
+  //       query GetAppSubscription($id: ID!) {
+  //         node(id: $id) {
+  //           ... on AppSubscription {
+  //             id
+  //             name
+  //             status
+  //             currentPeriodEnd
+  //             test
+  //             lineItems {
+  //               plan {
+  //                 pricingDetails {
+  //                   ... on AppRecurringPricing {
+  //                     price {
+  //                       amount
+  //                       currencyCode
+  //                     }
+  //                     interval
+  //                   }
+  //                 }
+  //               }
+  //             }
+  //           }
+  //         }
+  //       }
+  //     `, {
+  //       variables: { id: `gid://shopify/AppSubscription/${charge_id}` }
+  //     });
 
-      const data = await response.json();
-      console.log(`📊 Shopify API response:`, JSON.stringify(data, null, 2));
+  //     const data = await response.json();
+  //     console.log(`📊 Shopify API response:`, JSON.stringify(data, null, 2));
       
-      const subscription = data.data?.node;
+  //     const subscription = data.data?.node;
       
-      if (subscription && subscription.status === "ACTIVE") {
-        const amount = subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount;
-        console.log(`💰 Subscription amount: ${amount}`);
+  //     if (subscription && subscription.status === "ACTIVE") {
+  //       const amount = subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount;
+  //       console.log(`💰 Subscription amount: ${amount}`);
         
-        // Determine plan based on price
-        let planName = "free";
-        if (amount) {
-          const priceFloat = parseFloat(amount);
-          console.log(`🔍 Matching price: ${priceFloat}`);
+  //       // Determine plan based on price
+  //       let planName = "free";
+  //       if (amount) {
+  //         const priceFloat = parseFloat(amount);
+  //         console.log(`🔍 Matching price: ${priceFloat}`);
                     
-          // Find matching plan
-          for (const [key, plan] of Object.entries(PLANS)) {
-            console.log(`🔍 Checking plan ${key}: ${plan.price}`);
-            if (Math.abs(plan.price - priceFloat) < 0.02) {
-              planName = key;
-              console.log(`✅ Matched plan: ${planName}`);
-              break;
-            }
-          }
+  //         // Find matching plan
+  //         for (const [key, plan] of Object.entries(PLANS)) {
+  //           console.log(`🔍 Checking plan ${key}: ${plan.price}`);
+  //           if (Math.abs(plan.price - priceFloat) < 0.02) {
+  //             planName = key;
+  //             console.log(`✅ Matched plan: ${planName}`);
+  //             break;
+  //           }
+  //         }
           
-          // Fallback matching if exact match fails
-          if (planName === "free" && priceFloat > 0) {
-            console.error(`❌ Could not match price ${priceFloat} to any plan`);
-            if (priceFloat >= 4.50 && priceFloat <= 5.50) {
-              planName = "standard";
-            } else if (priceFloat >= 9.50 && priceFloat <= 10.50) {
-              planName = "pro";
-            }
-            console.log(`🔄 Fallback plan assignment: ${planName}`);
-          }
-        }
+  //         // Fallback matching if exact match fails
+  //         if (planName === "free" && priceFloat > 0) {
+  //           console.error(`❌ Could not match price ${priceFloat} to any plan`);
+  //           if (priceFloat >= 4.50 && priceFloat <= 5.50) {
+  //             planName = "standard";
+  //           } else if (priceFloat >= 9.50 && priceFloat <= 10.50) {
+  //             planName = "pro";
+  //           }
+  //           console.log(`🔄 Fallback plan assignment: ${planName}`);
+  //         }
+  //       }
         
-        // Update local subscription
-        console.log(`🔄 Updating local subscription to: ${planName}`);
-        await updateSubscription(session.shop, {
-          planName,
-          status: "active",
-          subscriptionId: charge_id,
-          usageLimit: PLANS[planName].usageLimit,
-          currentPeriodEnd: subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : undefined,
-        });
+  //       // Update local subscription
+  //       console.log(`🔄 Updating local subscription to: ${planName}`);
+  //       await updateSubscription(session.shop, {
+  //         planName,
+  //         status: "active",
+  //         subscriptionId: charge_id,
+  //         usageLimit: PLANS[planName].usageLimit,
+  //         currentPeriodEnd: subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : undefined,
+  //       });
         
-        console.log(`✅ Billing callback processed successfully!`);
-        console.log(`🚀 =================BILLING CALLBACK END==================`);
+  //       console.log(`✅ Billing callback processed successfully!`);
+  //       console.log(`🚀 =================BILLING CALLBACK END==================`);
         
-        // Redirect to remove charge_id from URL and show success
-        return redirect("/app?upgraded=true");
-      } else {
-        console.error(`❌ Subscription not active: ${subscription?.status}`);
-        return redirect("/app/billing?error=subscription_not_active");
-      }
+  //       // Redirect to remove charge_id from URL and show success
+  //       return redirect("/app?upgraded=true");
+  //     } else {
+  //       console.error(`❌ Subscription not active: ${subscription?.status}`);
+  //       return redirect("/app/billing?error=subscription_not_active");
+  //     }
       
-    } catch (error: any) {
-      console.error(`💥 =================BILLING CALLBACK ERROR===============`);
-      console.error(`❌ Error processing billing callback:`, error);
-      console.error(`💥 =======================================================`);
-      return redirect("/app/billing?error=processing_failed");
-    }
-  }
+  //   } catch (error: any) {
+  //     console.error(`💥 =================BILLING CALLBACK ERROR===============`);
+  //     console.error(`❌ Error processing billing callback:`, error);
+  //     console.error(`💥 =======================================================`);
+  //     return redirect("/app/billing?error=processing_failed");
+  //   }
+  // }
   
 
   return json({
