@@ -39,9 +39,7 @@ uri = "/webhooks/gdpr"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = [
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback"
-]
+redirect_urls = ["https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false

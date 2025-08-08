@@ -96,8 +96,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     }
   }
- // Production mode: Use Shopify API
- try {
+  
+  // Production mode: Use Shopify API
+try {
+  console.log(`🔄 Creating subscription for ${session.shop}: ${selectedPlan.displayName}`);
+  console.log(`💰 Plan details:`, {
+    name: selectedPlan.name,
+    price: selectedPlan.price,
+    currency: selectedPlan.currency,
+    interval: selectedPlan.billingInterval
+  });
+  
+  // Ensure we have the correct app URL
+  const appUrl = process.env.SHOPIFY_APP_URL || 'https://pricebooster-app-hkfq8.ondigitalocean.app';
+  const returnUrl = `${appUrl}/app/billing/callback`;
+  
+  console.log(`🔗 Return URL: ${returnUrl}`);
+  
   const response = await admin.graphql(`
     mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
       appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
@@ -118,14 +133,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   `, {
     variables: {
       name: `Dynamic Pricing ${selectedPlan.displayName}`,
-      returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing/callback`,
-      test: process.env.NODE_ENV !== "production", // true pour test, false pour prod
+      returnUrl: returnUrl,
+      test: process.env.NODE_ENV !== "production", // Use test mode in development
       lineItems: [{
         plan: {
           appRecurringPricingDetails: {
             interval: selectedPlan.billingInterval || "EVERY_30_DAYS",
             price: { 
-              amount: selectedPlan.price.toString(), // Convertir en string
+              amount: selectedPlan.price.toFixed(2), // Ensure 2 decimal places
               currencyCode: selectedPlan.currency
             }
           }
@@ -138,39 +153,72 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   
   console.log("📊 Subscription creation response:", JSON.stringify(data, null, 2));
   
-  if (data.data?.appSubscriptionCreate?.userErrors?.length > 0) {
-    console.error("❌ Subscription errors:", data.data.appSubscriptionCreate.userErrors);
+  // ✅ FIX: Add proper type checking for errors
+  if (data && typeof data === 'object' && 'errors' in data && data.errors) {
+    console.error("❌ GraphQL errors:", data.errors);
     return json({ 
-      error: "Subscription creation failed",
-      details: data.data.appSubscriptionCreate.userErrors 
+      error: "GraphQL error during subscription creation",
+      details: data.errors 
     });
   }
   
-  if (data.data?.appSubscriptionCreate?.confirmationUrl) {
-    // Store pending subscription info
+  // ✅ FIX: Add optional chaining and type checking
+  const subscriptionCreateData = data?.data?.appSubscriptionCreate;
+  
+  if (subscriptionCreateData?.userErrors?.length > 0) {
+    console.error("❌ Subscription user errors:", subscriptionCreateData.userErrors);
+    return json({ 
+      error: "Subscription creation failed",
+      details: subscriptionCreateData.userErrors 
+    });
+  }
+  
+  if (subscriptionCreateData?.confirmationUrl) {
+    const createdSubscription = subscriptionCreateData.appSubscription;
+    
+    console.log("✅ Subscription created successfully:", {
+      id: createdSubscription?.id,
+      status: createdSubscription?.status,
+      test: createdSubscription?.test
+    });
+    
+    // Store pending subscription info with the actual subscription ID
+    const subscriptionId = createdSubscription?.id?.split('/').pop(); // Extract ID from GID
+    
     await updateSubscription(session.shop, {
       status: "pending",
       planName: selectedPlan.name,
+      subscriptionId: subscriptionId,
     });
     
-    console.log("✅ Subscription created, redirecting to:", data.data.appSubscriptionCreate.confirmationUrl);
+    console.log("✅ Pending subscription stored, redirecting to:", subscriptionCreateData.confirmationUrl);
     
     return json({ 
-      confirmationUrl: data.data.appSubscriptionCreate.confirmationUrl 
+      confirmationUrl: subscriptionCreateData.confirmationUrl 
     });
   }
   
-  return json({ error: "Unable to create subscription" });
+  console.error("❌ No confirmation URL in response");
+  console.error("❌ Full response data:", JSON.stringify(data, null, 2));
+  return json({ 
+    error: "Unable to create subscription - no confirmation URL received",
+    details: "Check server logs for full response details"
+  });
   
 } catch (error: any) {
   console.error("💥 Billing error:", error);
+  console.error("📋 Error details:", {
+    message: error.message,
+    stack: error.stack,
+    response: error.response?.data
+  });
+  
   return json({ 
     error: "System error during subscription creation",
     details: error.message 
   });
 }
-};
-
+}
 export default function Billing() {
   const { subscriptionStats, plans, shop } = useLoaderData<typeof loader>();
   const actionData = useActionData<any>();
