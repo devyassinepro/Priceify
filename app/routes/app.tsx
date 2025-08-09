@@ -23,22 +23,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function App() {
   const { apiKey, subscription } = useLoaderData<typeof loader>();
 
-  const getNavTitle = (planName: string, usageCount: number, usageLimit: number) => {
-    if (planName === 'free') {
-      const remaining = usageLimit - usageCount;
-      return `⭐ Upgrade (${remaining} left)`;
-    }
-    return '💳 Billing';
-  };
-
   const usagePercentage = subscription.usageLimit > 0 
     ? (subscription.usageCount / subscription.usageLimit) * 100 
     : 0;
 
-      // ✅ Direct pricing plans URL
+  // ✅ URL directe vers les plans de tarification Shopify
   const shopName = subscription.shop.replace('.myshopify.com', '');
   const pricingPlansUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
-
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
@@ -70,7 +61,7 @@ export default function App() {
             </span>
           )}
         </Link>
-        {/* ✅ UPDATED: Direct link to pricing plans */}
+        {/* ✅ Lien direct vers les plans de tarification Shopify */}
         <a 
           href={pricingPlansUrl}
           target="_parent"
@@ -81,6 +72,10 @@ export default function App() {
             : "💳 Manage Subscription"
           }
         </a>
+        {/* ✅ Bouton de synchronisation pour le dépannage */}
+        <Link to="/app/sync-subscription">
+          🔄 Sync
+        </Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
