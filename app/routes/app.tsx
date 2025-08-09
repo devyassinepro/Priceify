@@ -28,9 +28,16 @@ export default function App() {
     : 0;
 
   // ✅ URL directe vers les plans de tarification Shopify
-  const shopName = subscription.shop.replace('.myshopify.com', '');
-  const pricingPlansUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
-  const url = `/charges/priceboost/pricing_plans`;
+  // const shopName = subscription.shop.replace('.myshopify.com', '');
+  // const pricingPlansUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
+  // const url = `/charges/priceboost/pricing_plans`;
+
+  const handlePricingClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const shopName = subscription.shop.replace('.myshopify.com', '');
+    const pricingUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
+    window.top!.location.href = pricingUrl;
+  };
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
@@ -63,11 +70,9 @@ export default function App() {
           )}
         </Link>
         {/* ✅ Lien direct vers les plans de tarification Shopify */}
-        <a 
-          href={url}
-          target="_top"
-          style={{ textDecoration: "none", color: "inherit" }}
-        >
+        
+          <a href="#" onClick={handlePricingClick}>
+
           {subscription.planName === 'free' 
             ? "⭐ View Pricing Plans" 
             : "💳 Manage Subscription"
