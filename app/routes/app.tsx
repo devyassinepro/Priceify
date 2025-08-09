@@ -1,3 +1,4 @@
+
 import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
@@ -27,18 +28,6 @@ export default function App() {
     ? (subscription.usageCount / subscription.usageLimit) * 100 
     : 0;
 
-  // ✅ URL directe vers les plans de tarification Shopify
-  // const shopName = subscription.shop.replace('.myshopify.com', '');
-  // const pricingPlansUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
-  // const url = `/charges/priceboost/pricing_plans`;
-
-  const handlePricingClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const shopName = subscription.shop.replace('.myshopify.com', '');
-    const pricingUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
-    window.top!.location.href = pricingUrl;
-  };
-
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
@@ -48,11 +37,7 @@ export default function App() {
         <Link to="/app/pricing">
           💰 Dynamic Pricing
           {usagePercentage >= 100 && (
-            <span style={{ 
-              marginLeft: "0.5rem", 
-              fontSize: "0.75rem", 
-              color: "#d73502" 
-            }}>
+            <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#d73502" }}>
               (Limit Reached)
             </span>
           )}
@@ -60,25 +45,14 @@ export default function App() {
         <Link to="/app/history">
           📋 History
           {subscription.usageCount > 0 && (
-            <span style={{ 
-              marginLeft: "0.5rem", 
-              fontSize: "0.75rem", 
-              color: "#008060" 
-            }}>
+            <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#008060" }}>
               ({subscription.usageCount})
             </span>
           )}
         </Link>
-        {/* ✅ Lien direct vers les plans de tarification Shopify */}
-        
-          <a href="#" onClick={handlePricingClick}>
-
-          {subscription.planName === 'free' 
-            ? "⭐ View Pricing Plans" 
-            : "💳 Manage Subscription"
-          }
-        </a>
-        {/* ✅ Bouton de synchronisation pour le dépannage */}
+        <Link to="/app/plans">
+          {subscription.planName === 'free' ? "⭐ View Pricing Plans" : "💳 Manage Subscription"}
+        </Link>
         <Link to="/app/sync-subscription">
           🔄 Sync
         </Link>
