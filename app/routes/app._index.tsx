@@ -32,11 +32,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   
   // ✅ Détection automatique de retour depuis la page de tarification Shopify
-  const referrer = request.headers.get("referer") || "";
-  const fromShopifyPricing = referrer.includes("/charges/priceboost/pricing_plans");
+  const urlshop = `/charges/priceboost/pricing_plans`;
   
   // Si l'utilisateur vient de la page de tarification Shopify, synchroniser automatiquement
-  if (fromShopifyPricing && !url.searchParams.get("sync")) {
+  if (urlshop && !url.searchParams.get("sync")) {
     console.log(`🔄 User returned from Shopify pricing page, triggering sync...`);
     return redirect("/app/sync-subscription");
   }
@@ -83,8 +82,7 @@ export default function Index() {
   const hasReachedLimit = usagePercentage >= 100;
 
   // ✅ URL de tarification Shopify
-  const shopName = shop.replace('.myshopify.com', '');
-  const shopifyBillingUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
+  const urlshop = `/charges/priceboost/pricing_plans`;
 
   // Nettoyer les paramètres de sync après 5 secondes
   useEffect(() => {
@@ -155,11 +153,11 @@ export default function Index() {
               tone={hasReachedLimit ? "critical" : "warning"}
               action={hasReachedLimit ? {
                 content: "View Pricing Plans",
-                url: shopifyBillingUrl,
+                url: urlshop,
                 external: true
               } : {
                 content: "View Pricing Plans",
-                url: shopifyBillingUrl,
+                url: urlshop,
                 external: true
               }}
             >
@@ -284,14 +282,11 @@ export default function Index() {
 
                       {/* ✅ Bouton vers la page de tarification Shopify */}
                       {plan.name === "free" && (
-                        <Button 
-                          size="large" 
-                          tone="success"
-                          url={shopifyBillingUrl}
-                          external
+                        <a 
+                        href={urlshop} target="_top"
                         >
-                          🚀 View Pricing Plans
-                        </Button>
+                         <Button>🚀 View Pricing Plans</Button>  
+                        </a>
                       )}
                       
                       {/* Bouton de synchronisation manuelle */}
@@ -357,13 +352,11 @@ export default function Index() {
                     Upgrade to Standard (500 products) or Pro (unlimited products) to unlock your pricing potential.
                   </Text>
                   <div>
-                    <Button 
-                      size="large"
-                      url={shopifyBillingUrl}
-                      external
-                    >
-                      🔗 View Pricing Plans
-                    </Button>
+                    <a 
+                        href={urlshop} target="_top"
+                        >
+                         <Button>View Pricing Plans</Button>  
+                        </a>
                   </div>
                   <Text as="p" variant="bodySm" tone="inherit">
                     ✨ After upgrading, return here and your new plan will be automatically activated!

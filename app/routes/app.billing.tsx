@@ -5,12 +5,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   
   // Pour les Managed Pricing Apps, rediriger directement vers Shopify
-  const shopName = session.shop.replace('.myshopify.com', '');
-  const shopifyPricingUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
+  const url = `/charges/priceboost/pricing_plans`;
+
   
-  console.log(`🔄 Redirecting to Shopify pricing: ${shopifyPricingUrl}`);
+  console.log(`🔄 Redirecting to Shopify pricing: ${url}`);
   
-  return redirect(shopifyPricingUrl);
+  return redirect(url);
 };
 
 export default function Billing() {

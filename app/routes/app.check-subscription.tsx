@@ -150,8 +150,7 @@ export default function CheckSubscription() {
   
   const { shop, localSubscription, shopifySubscriptions, analysis } = data;
   
-  const shopName = shop.replace('.myshopify.com', '');
-  const pricingPlansUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
+  const url = `/charges/priceboost/pricing_plans`;
   
   return (
     <Page 
@@ -225,9 +224,9 @@ export default function CheckSubscription() {
                   <div style={{ textAlign: "center", padding: "2rem" }}>
                     <Text as="p" tone="subdued">No active subscriptions found in Shopify</Text>
                     <div style={{ marginTop: "1rem" }}>
-                      <Button url={pricingPlansUrl} external>
-                        View Pricing Plans
-                      </Button>
+                      <a href={url} target="_top">
+                        <Button>View Pricing Plans</Button>
+                    </a>
                     </div>
                   </div>
                 ) : (
@@ -264,9 +263,9 @@ export default function CheckSubscription() {
                     </Button>
                   </Link>
                   
-                  <Button url={pricingPlansUrl} external>
-                    🔗 Manage in Shopify
-                  </Button>
+                  <a href={url} target="_top" >
+                    <Button>🔗 Manage in Shopify</Button>
+                  </a>
                   
                   <Link to="/app">
                     <Button>
