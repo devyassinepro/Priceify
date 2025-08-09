@@ -27,8 +27,9 @@ export default function App() {
     ? (subscription.usageCount / subscription.usageLimit) * 100 
     : 0;
 
-  const url = `/charges/priceboost/pricing_plans`;
-
+  // ✅ URL directe vers les plans de tarification Shopify
+  const shopName = subscription.shop.replace('.myshopify.com', '');
+  const pricingPlansUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
@@ -62,7 +63,8 @@ export default function App() {
         </Link>
         {/* ✅ Lien direct vers les plans de tarification Shopify */}
         <a 
-         href={url} target="_top"
+          href={pricingPlansUrl}
+          target="_parent"
           style={{ textDecoration: "none", color: "inherit" }}
         >
           {subscription.planName === 'free' 
