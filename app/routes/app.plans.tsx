@@ -36,75 +36,107 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+    const { admin, session } = await authenticate.admin(request);
   
-  try {
-    const formData = await request.formData();
-    const selectedPlan = formData.get("plan") as string;
-    
-    if (!selectedPlan || !PLANS[selectedPlan]) {
-      return json<ActionResult>({ error: "Invalid plan selected" });
-    }
-    
-    const plan = PLANS[selectedPlan];
-    
-    if (plan.name === "free") {
-      return json<ActionResult>({ error: "You're already on the free plan" });
-    }
-    
-    console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
-    
-    // ✅ CRÉER UNE CHARGE SHOPIFY (comme vos concurrents)
-    const response = await admin.graphql(`
-      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
-        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
-          appSubscription {
-            id
-          }
-          confirmationUrl
-          userErrors {
-            field
-            message
-          }
-        }
+    try {
+      const formData = await request.formData();
+      const selectedPlan = formData.get("plan") as string;
+      
+      if (!selectedPlan || !PLANS[selectedPlan]) {
+        return json<ActionResult>({ error: "Invalid plan selected" });
       }
-    `, {
-      variables: {
-        name: plan.displayName,
-        returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing/callback`,
-        test: process.env.NODE_ENV !== "production",
-        lineItems: [
-          {
-            plan: {
-              appRecurringPricingDetails: {
-                price: { amount: plan.price, currencyCode: "USD" },
-                interval: "EVERY_30_DAYS"
-              }
+      
+      const plan = PLANS[selectedPlan];
+      
+      if (plan.name === "free") {
+        return json<ActionResult>({ error: "You're already on the free plan" });
+      }
+      
+      console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
+      
+      // ✅ CORRECTION: Construction de l'URL de retour plus robuste
+      const baseUrl = process.env.SHOPIFY_APP_URL || `https://${request.headers.get('host')}`;
+      const returnUrl = `${baseUrl}/app/billing/callback`;
+      
+      console.log(`📋 Return URL: ${returnUrl}`);
+      console.log(`📋 Base URL: ${baseUrl}`);
+      
+      // Vérification que l'URL est valide
+      try {
+        new URL(returnUrl);
+      } catch (urlError) {
+        console.error(`❌ Invalid return URL: ${returnUrl}`);
+        return json<ActionResult>({ 
+          error: `Invalid return URL configuration. Please contact support.` 
+        });
+      }
+      
+      // ✅ CRÉER UNE CHARGE SHOPIFY avec URL corrigée
+      const response = await admin.graphql(`
+        mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
+          appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
+            appSubscription {
+              id
+            }
+            confirmationUrl
+            userErrors {
+              field
+              message
             }
           }
-        ]
+        }
+      `, {
+        variables: {
+          name: plan.displayName,
+          returnUrl: returnUrl, // ✅ URL corrigée
+          test: process.env.NODE_ENV !== "production",
+          lineItems: [
+            {
+              plan: {
+                appRecurringPricingDetails: {
+                  price: { amount: plan.price, currencyCode: "USD" },
+                  interval: "EVERY_30_DAYS"
+                }
+              }
+            }
+          ]
+        }
+      });
+      
+      const result = await response.json();
+      console.log(`📊 GraphQL response:`, JSON.stringify(result, null, 2));
+      
+      if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
+        const errors = result.data.appSubscriptionCreate.userErrors;
+        console.error(` Billing errors:`, errors);
+        return json<ActionResult>({ 
+            error: `Billing error: ${errors.map((e: any) => e.message).join(', ')}`
+        });
       }
-    });
-    
-    const result = await response.json();
-    
-    if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
-      const errors = result.data.appSubscriptionCreate.userErrors;
-      return json<ActionResult>({ error: `Billing error: ${errors[0].message}` });
+      
+      const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
+      
+      if (!confirmationUrl) {
+        console.error(` No confirmation URL received`);
+        return json<ActionResult>({ 
+          error: "Failed to create subscription - no confirmation URL" 
+        });
+      }
+      
+      console.log(`✅ Billing charge created successfully`);
+      console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
+      
+      return json<ActionResult>({ 
+        success: true, 
+        confirmationUrl 
+      });
+      
+    } catch (error: any) {
+      console.error(`💥 Billing creation failed:`, error);
+      return json<ActionResult>({ 
+        error: `Failed to create subscription: ${error.message}` 
+      });
     }
-    
-    const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
-    
-    if (!confirmationUrl) {
-      return json<ActionResult>({ error: "Failed to create subscription" });
-    }
-    
-    return json<ActionResult>({ success: true, confirmationUrl });
-    
-  } catch (error: any) {
-    console.error(`💥 Billing creation failed:`, error);
-    return json<ActionResult>({ error: `Failed to create subscription: ${error.message}` });
-  }
 };
 
 export default function Plans() {
