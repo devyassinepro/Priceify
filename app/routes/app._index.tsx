@@ -1,6 +1,6 @@
 // app/routes/app._index.tsx - Updated dashboard for product-based quota
 
-import { json, LoaderFunctionArgs } from "@remix-run/node";
+import { json, LoaderFunctionArgs , redirect } from "@remix-run/node";
 import { useLoaderData, Link } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import {
@@ -28,126 +28,135 @@ import { getSubscriptionStats } from "../models/subscription.server";
 import { getPlan, formatPriceDisplay } from "../lib/plans";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const subscriptionStats = await getSubscriptionStats(session.shop);
+  const { session, admin } = await authenticate.admin(request);
 
-  const plan = getPlan(subscriptionStats.planName);
-    // // Import PLANS at the top of your file
-    // const { PLANS } = await import("../lib/plans");
-    // const { updateSubscription } = await import("../models/subscription.server");
-    // // ✅ ADD THIS: Handle billing callback if charge_id is present
-    const url = new URL(request.url);
-    // const charge_id = url.searchParams.get("charge_id");
 
-   // Check for upgrade success parameter
-   const upgraded = url.searchParams.get("upgraded") === "true";
+  // ✅ Handle billing callback when charge_id is present
+  const url = new URL(request.url);
+  const charge_id = url.searchParams.get("charge_id");
   
-  //  if (charge_id) {
-  //   console.log(`🔄 =================BILLING CALLBACK DETECTED================`);
-  //   console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
-  //   console.log(`🏪 Shop: ${session.shop}`);
-  //   console.log(`💳 Charge ID: ${charge_id}`);
-  //   console.log(`🔗 Full URL: ${url.toString()}`);
+  if (charge_id) {
+    console.log(`🔄 =================BILLING CALLBACK DETECTED================`);
+    console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+    console.log(`🏪 Shop: ${session.shop}`);
+    console.log(`💳 Charge ID: ${charge_id}`);
+    console.log(`🔗 Full URL: ${url.toString()}`);
     
-  //   try {
-  //     // Process the billing callback right here
-  //     console.log(`🔍 Fetching subscription details for charge: ${charge_id}`);
+    try {
+      // Import functions dynamically to avoid circular dependencies
+      const { updateSubscription } = await import("../models/subscription.server");
+      const { PLANS } = await import("../lib/plans");
       
-  //     const response = await admin.graphql(`
-  //       query GetAppSubscription($id: ID!) {
-  //         node(id: $id) {
-  //           ... on AppSubscription {
-  //             id
-  //             name
-  //             status
-  //             currentPeriodEnd
-  //             test
-  //             lineItems {
-  //               plan {
-  //                 pricingDetails {
-  //                   ... on AppRecurringPricing {
-  //                     price {
-  //                       amount
-  //                       currencyCode
-  //                     }
-  //                     interval
-  //                   }
-  //                 }
-  //               }
-  //             }
-  //           }
-  //         }
-  //       }
-  //     `, {
-  //       variables: { id: `gid://shopify/AppSubscription/${charge_id}` }
-  //     });
+      // Get subscription details from Shopify
+      console.log(`🔍 Fetching subscription details for charge: ${charge_id}`);
+      
+      const response = await admin.graphql(`
+        query GetAppSubscription($id: ID!) {
+          node(id: $id) {
+            ... on AppSubscription {
+              id
+              name
+              status
+              currentPeriodEnd
+              test
+              lineItems {
+                plan {
+                  pricingDetails {
+                    ... on AppRecurringPricing {
+                      price {
+                        amount
+                        currencyCode
+                      }
+                      interval
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `, {
+        variables: { id: `gid://shopify/AppSubscription/${charge_id}` }
+      });
 
-  //     const data = await response.json();
-  //     console.log(`📊 Shopify API response:`, JSON.stringify(data, null, 2));
+      const data = await response.json();
+      console.log(`📊 Shopify subscription response:`, JSON.stringify(data, null, 2));
       
-  //     const subscription = data.data?.node;
+      // Check for errors
+      if (data && typeof data === 'object' && 'errors' in data && data.errors) {
+        console.error(`❌ GraphQL errors:`, data.errors);
+        return redirect("/app?billing_error=graphql_error");
+      }
       
-  //     if (subscription && subscription.status === "ACTIVE") {
-  //       const amount = subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount;
-  //       console.log(`💰 Subscription amount: ${amount}`);
+      const subscription = data.data?.node;
+      
+      if (!subscription) {
+        console.error(`❌ No subscription found for charge: ${charge_id}`);
+        return redirect("/app?billing_error=subscription_not_found");
+      }
+      
+      console.log(`📋 Subscription status: ${subscription.status}`);
+      
+      if (subscription.status === "ACTIVE") {
+        // Extract pricing information
+        const amount = subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount;
+        console.log(`💰 Subscription amount: ${amount}`);
         
-  //       // Determine plan based on price
-  //       let planName = "free";
-  //       if (amount) {
-  //         const priceFloat = parseFloat(amount);
-  //         console.log(`🔍 Matching price: ${priceFloat}`);
-                    
-  //         // Find matching plan
-  //         for (const [key, plan] of Object.entries(PLANS)) {
-  //           console.log(`🔍 Checking plan ${key}: ${plan.price}`);
-  //           if (Math.abs(plan.price - priceFloat) < 0.02) {
-  //             planName = key;
-  //             console.log(`✅ Matched plan: ${planName}`);
-  //             break;
-  //           }
-  //         }
+        // Determine plan based on price
+        let planName = "free";
+        if (amount) {
+          const priceFloat = parseFloat(amount);
+          console.log(`🔍 Matching price: ${priceFloat}`);
           
-  //         // Fallback matching if exact match fails
-  //         if (planName === "free" && priceFloat > 0) {
-  //           console.error(`❌ Could not match price ${priceFloat} to any plan`);
-  //           if (priceFloat >= 4.50 && priceFloat <= 5.50) {
-  //             planName = "standard";
-  //           } else if (priceFloat >= 9.50 && priceFloat <= 10.50) {
-  //             planName = "pro";
-  //           }
-  //           console.log(`🔄 Fallback plan assignment: ${planName}`);
-  //         }
-  //       }
+          // Simple and reliable price matching
+          if (Math.abs(priceFloat - 4.99) < 0.02) {
+            planName = "standard";
+          } else if (Math.abs(priceFloat - 9.99) < 0.02) {
+            planName = "pro";
+          }
+          
+          console.log(`✅ Matched plan: ${planName} for price $${priceFloat}`);
+        }
         
-  //       // Update local subscription
-  //       console.log(`🔄 Updating local subscription to: ${planName}`);
-  //       await updateSubscription(session.shop, {
-  //         planName,
-  //         status: "active",
-  //         subscriptionId: charge_id,
-  //         usageLimit: PLANS[planName].usageLimit,
-  //         currentPeriodEnd: subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : undefined,
-  //       });
+        // Update local subscription
+        console.log(`🔄 Updating local subscription for ${session.shop}: ${planName}`);
         
-  //       console.log(`✅ Billing callback processed successfully!`);
-  //       console.log(`🚀 =================BILLING CALLBACK END==================`);
+        await updateSubscription(session.shop, {
+          planName,
+          status: "active",
+          subscriptionId: charge_id,
+          usageLimit: PLANS[planName].usageLimit,
+          currentPeriodEnd: subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : undefined,
+        });
         
-  //       // Redirect to remove charge_id from URL and show success
-  //       return redirect("/app?upgraded=true");
-  //     } else {
-  //       console.error(`❌ Subscription not active: ${subscription?.status}`);
-  //       return redirect("/app/billing?error=subscription_not_active");
-  //     }
+        console.log(`✅ Local subscription updated successfully!`);
+        console.log(`🚀 =================BILLING CALLBACK SUCCESS==================`);
+        
+        // Redirect to clean URL with success flag
+        return redirect("/app?upgraded=true");
+        
+      } else {
+        console.error(`❌ Subscription not active: ${subscription.status}`);
+        return redirect("/app?billing_error=subscription_inactive");
+      }
       
-  //   } catch (error: any) {
-  //     console.error(`💥 =================BILLING CALLBACK ERROR===============`);
-  //     console.error(`❌ Error processing billing callback:`, error);
-  //     console.error(`💥 =======================================================`);
-  //     return redirect("/app/billing?error=processing_failed");
-  //   }
-  // }
-  
+    } catch (error: any) {
+      console.error(`💥 =================BILLING CALLBACK ERROR===============`);
+      console.error(`❌ Error processing billing callback:`, error);
+      console.error(`💥 =======================================================`);
+      return redirect("/app?billing_error=processing_failed");
+    }
+  }
 
+
+  // ✅ Continue with your existing loader logic
+  const subscriptionStats = await getSubscriptionStats(session.shop);
+  const plan = getPlan(subscriptionStats.planName);
+
+  // Check for upgrade success parameter
+  const upgraded = url.searchParams.get("upgraded") === "true";
+  const billing_error = url.searchParams.get("billing_error");
+  
   return json({
     shop: session.shop,
     subscription: subscriptionStats,
@@ -156,6 +165,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     remainingProducts: subscriptionStats.usageLimit - subscriptionStats.usageCount,
     uniqueProductCount: subscriptionStats.uniqueProductCount || 0,
     showUpgradeSuccess: upgraded,
+    billingError: billing_error,
   });
 };
 
@@ -167,16 +177,34 @@ export default function Index() {
     usagePercentage, 
     remainingProducts, 
     uniqueProductCount,
-    showUpgradeSuccess 
+    showUpgradeSuccess,
+    billingError 
   } = useLoaderData<typeof loader>();
 
   const isNewUser = subscription.usageCount === 0;
   const isNearLimit = usagePercentage > 80;
   const hasReachedLimit = usagePercentage >= 100;
 
+  // ✅ Direct Shopify pricing plans URL
+  const shopName = shop.replace('.myshopify.com', '');
+  const shopifyBillingUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
+
   return (
     <Page title="Dashboard" subtitle={`Welcome back to Dynamic Pricing for ${shop}`}>
       <Layout>
+          {/* ✅ ADD: Billing Error Banner */}
+            {billingError && (
+          <Layout.Section>
+            <Banner title="Billing Processing Issue" tone="critical">
+              <Text as="p">
+                {billingError === 'subscription_not_found' && "We couldn't find your subscription details. Please contact support."}
+                {billingError === 'subscription_inactive' && "Your subscription is not yet active. Please try again in a few minutes."}
+                {billingError === 'processing_failed' && "There was an error processing your subscription. Please contact support."}
+                {billingError === 'graphql_error' && "Unable to verify your subscription with Shopify. Please contact support."}
+              </Text>
+            </Banner>
+          </Layout.Section>
+        )}
         {/* Upgrade Success Banner */}
         {showUpgradeSuccess && (
           <Layout.Section>
@@ -188,32 +216,25 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Welcome/Status Banner */}
-        {isNewUser && !showUpgradeSuccess ? (
-          <Layout.Section>
-            <Banner title="Welcome to Dynamic Pricing!" tone="success">
-              <Text as="p">
-                Your app is successfully installed! Start by updating your first product prices. 
-                Remember: your quota is based on unique products modified, not individual price changes.
-              </Text>
-            </Banner>
-          </Layout.Section>
-        ) : isNearLimit && !showUpgradeSuccess ? (
+        {/* ✅ UPDATE: Usage warnings with direct Shopify links */}
+        {isNearLimit && !showUpgradeSuccess ? (
           <Layout.Section>
             <Banner 
               title={hasReachedLimit ? "Product Limit Reached" : "Approaching Product Limit"}
               tone={hasReachedLimit ? "critical" : "warning"}
               action={hasReachedLimit ? {
-                content: "Upgrade Now",
-                url: "/app/billing"
+                content: "View Pricing Plans",
+                url: shopifyBillingUrl,
+                external: true
               } : {
-                content: "View Plans",
-                url: "/app/billing"
+                content: "View Pricing Plans",
+                url: shopifyBillingUrl,
+                external: true
               }}
             >
               <Text as="p">
                 You've modified {subscription.usageCount} of {subscription.usageLimit} allowed unique products this month
-                {hasReachedLimit ? ". Upgrade to continue making changes." : "."}
+                {hasReachedLimit ? ". Upgrade in Shopify to continue making changes." : "."}
               </Text>
             </Banner>
           </Layout.Section>
@@ -373,12 +394,16 @@ export default function Index() {
                         </Button>
                       </Link>
 
+                      {/* ✅ UPDATED: Direct Shopify billing link */}
                       {plan.name === "free" && (
-                        <Link to="/app/billing">
-                          <Button size="large" tone="success">
-                            Upgrade Plan
-                          </Button>
-                        </Link>
+                        <Button 
+                          size="large" 
+                          tone="success"
+                          url={shopifyBillingUrl}
+                          external
+                        >
+                          🚀 View Pricing Plans
+                        </Button>
                       )}
                     </div>
                   </BlockStack>
@@ -459,8 +484,8 @@ export default function Index() {
           </Card>
         </Layout.Section>
 
-        {/* Upgrade CTA for Free Users - Updated messaging */}
-        {plan.name === "free" && !hasReachedLimit && (
+{/* ✅ UPDATE: Upgrade CTA with direct Shopify link */}
+{plan.name === "free" && !hasReachedLimit && (
           <Layout.Section>
             <Card>
               <div style={{ 
@@ -475,15 +500,20 @@ export default function Index() {
                     Ready to modify more products?
                   </Text>
                   <Text as="p" tone="inherit">
-                    Upgrade to modify up to 500 unique products per month (Standard) or unlimited products (Pro)
+                    View our pricing plans to modify up to 500 unique products (Standard) or unlimited products (Pro)
                   </Text>
                   <div>
-                    <Link to="/app/billing">
-                      <Button size="large">
-                        View Upgrade Options
-                      </Button>
-                    </Link>
+                    <Button 
+                      size="large"
+                      url={shopifyBillingUrl}
+                      external
+                    >
+                      🔗 View Pricing Plans
+                    </Button>
                   </div>
+                  <Text as="p" variant="bodySm" tone="inherit">
+                    ✨ After upgrading, return here and your new plan will be automatically activated!
+                  </Text>
                 </BlockStack>
               </div>
             </Card>

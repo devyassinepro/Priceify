@@ -35,6 +35,11 @@ export default function App() {
     ? (subscription.usageCount / subscription.usageLimit) * 100 
     : 0;
 
+      // ✅ Direct pricing plans URL
+  const shopName = subscription.shop.replace('.myshopify.com', '');
+  const pricingPlansUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
+
+
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
@@ -65,9 +70,17 @@ export default function App() {
             </span>
           )}
         </Link>
-        <Link to="/app/billing">
-          {getNavTitle(subscription.planName, subscription.usageCount, subscription.usageLimit)}
-        </Link>
+        {/* ✅ UPDATED: Direct link to pricing plans */}
+        <a 
+          href={pricingPlansUrl}
+          target="_parent"
+          style={{ textDecoration: "none", color: "inherit" }}
+        >
+          {subscription.planName === 'free' 
+            ? "⭐ View Pricing Plans" 
+            : "💳 Manage Subscription"
+          }
+        </a>
       </NavMenu>
       <Outlet />
     </AppProvider>
