@@ -2,18 +2,7 @@
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, Form } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import {
-  Card,
-  Layout,
-  Page,
-  Text,
-  Button,
-  Grid,
-  Badge,
-  List,
-  Banner,
-  BlockStack,
-} from "@shopify/polaris";
+import {Card,Layout,Page,Text,Button,Grid,Badge,List,Banner,BlockStack} from "@shopify/polaris";
 import { getOrCreateSubscription } from "../models/subscription.server";
 import { PLANS } from "../lib/plans";
 import { useEffect } from "react";
@@ -26,12 +15,18 @@ interface ActionResult {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const subscription = await getOrCreateSubscription(session.shop);
+  const subscription = await getOrCreateSubscription(session.shop);  
+
+  const isTestMode = process.env.SHOPIFY_BILLING_TEST === "true" || 
+  process.env.NODE_ENV === "development" ||
+  session.shop.includes("test-") ||
+  session.shop.includes("dev-");
   
   return json({
     shop: session.shop,
     subscription,
-    plans: Object.values(PLANS)
+    plans: Object.values(PLANS),
+    isTestMode 
   });
 };
 
@@ -57,6 +52,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // ✅ CORRECTION: Construction de l'URL de retour plus robuste
       const baseUrl = process.env.SHOPIFY_APP_URL || `https://${request.headers.get('host')}`;
       const returnUrl = `${baseUrl}/app/billing/callback`;
+
+      // ✅ CORRECTION: Mode test indépendant de NODE_ENV
+            const isTestMode = process.env.SHOPIFY_BILLING_TEST === "true" || 
+            process.env.NODE_ENV === "development" ||
+            session.shop.includes("test-") ||
+            session.shop.includes("dev-");
+
+    console.log(`🧪 Test mode: ${isTestMode}`);
       
       console.log(`📋 Return URL: ${returnUrl}`);
       console.log(`📋 Base URL: ${baseUrl}`);
@@ -71,7 +74,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         });
       }
       
-      // ✅ CRÉER UNE CHARGE SHOPIFY avec URL corrigée
       const response = await admin.graphql(`
         mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
           appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
@@ -88,8 +90,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       `, {
         variables: {
           name: plan.displayName,
-          returnUrl: returnUrl, // ✅ URL corrigée
-          test: process.env.NODE_ENV !== "production",
+          returnUrl: returnUrl,
+          test: isTestMode, // ✅ Utilise la variable calculée
           lineItems: [
             {
               plan: {
@@ -140,7 +142,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Plans() {
-  const { shop, subscription, plans } = useLoaderData<typeof loader>();
+  const { shop, subscription, plans,isTestMode } = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionResult>();
   
   // ✅ REDIRECTION AUTOMATIQUE VERS SHOPIFY
@@ -153,6 +155,18 @@ export default function Plans() {
   return (
     <Page title="Choose Your Plan" backAction={{ content: "← Dashboard", url: "/app" }}>
       <Layout>
+
+          {/* ✅ Afficher un banner en mode test */}
+          {isTestMode && (
+          <Layout.Section>
+            <Banner title="🧪 Test Mode Active" tone="info">
+              <Text as="p">
+                Billing is in test mode - no real charges will be made. 
+                Perfect for testing your subscription flow!
+              </Text>
+            </Banner>
+          </Layout.Section>
+        )}
         {actionData?.error && (
           <Layout.Section>
             <Banner title="Subscription Error" tone="critical">

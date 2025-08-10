@@ -155,12 +155,10 @@ export default function Index() {
               tone={hasReachedLimit ? "critical" : "warning"}
               action={hasReachedLimit ? {
                 content: "View Pricing Plans",
-                url: shopifyBillingUrl,
-                external: true
+                url: "/app/plans"
               } : {
                 content: "View Pricing Plans",
-                url: shopifyBillingUrl,
-                external: true
+                url: "/app/plans"
               }}
             >
               <Text as="p">
@@ -266,34 +264,24 @@ export default function Index() {
                     </div>
                     
                     <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-                      <Link to="/app/pricing">
-                        <Button 
-                          variant="primary" 
-                          size="large"
-                          disabled={hasReachedLimit}
-                        >
+                    <Link to="/app/pricing">
+                        <Button variant="primary" size="large" disabled={hasReachedLimit}>
                           {hasReachedLimit ? "Upgrade to Continue" : "Update Prices"}
                         </Button>
                       </Link>
                       
                       <Link to="/app/history">
-                        <Button size="large">
-                          View History
-                        </Button>
+                        <Button size="large">View History</Button>
                       </Link>
 
-                      {/* ✅ Bouton vers la page de tarification Shopify */}
                       {plan.name === "free" && (
-                        <Button 
-                          size="large" 
-                          tone="success"
-                          url={shopifyBillingUrl}
-                          external
-                        >
-                          🚀 View Pricing Plans
-                        </Button>
+                        <Link to="/app/plans">
+                          <Button size="large" tone="success">
+                            🚀 View Pricing Plans
+                          </Button>
+                        </Link>
                       )}
-                      
+                    
                       {/* Bouton de synchronisation manuelle */}
                       <Link to="/app/sync-subscription">
                         <Button size="large">
@@ -357,13 +345,11 @@ export default function Index() {
                     Upgrade to Standard (500 products) or Pro (unlimited products) to unlock your pricing potential.
                   </Text>
                   <div>
-                    <Button 
-                      size="large"
-                      url={shopifyBillingUrl}
-                      external
-                    >
-                      🔗 View Pricing Plans
-                    </Button>
+                        <Link to="/app/plans">
+                          <Button size="large" tone="success">
+                            🚀 View Pricing Plans
+                          </Button>
+                        </Link>
                   </div>
                   <Text as="p" variant="bodySm" tone="inherit">
                     ✨ After upgrading, return here and your new plan will be automatically activated!
