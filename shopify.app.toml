@@ -46,6 +46,9 @@ redirect_urls = [
   "https://pricebooster-app-hkfq8.ondigitalocean.app/app/billing/callback",
   "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/success",
   "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/callback",
+  # ✅ FIX: Autoriser les redirections vers l'admin Shopify
+  "https://admin.shopify.com/store/*/apps/pricefy-1",
+  "https://admin.shopify.com/store/*/apps/pricefy-1/*"
 ]
 
 [pos]

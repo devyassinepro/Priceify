@@ -47,11 +47,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
     
-    // ✅ CORRECTION: URL de retour avec paramètres pour maintenir le contexte
-    const baseUrl = process.env.SHOPIFY_APP_URL || `https://${request.headers.get('host')}`;
-    const returnUrl = `${baseUrl}/app/billing/callback?shop=${session.shop}&plan=${plan.name}`;
+    // ✅ FIX: Rediriger vers l'admin Shopify pour maintenir le contexte d'authentification
+    const shopDomain = session.shop;
+    const shopName = shopDomain.replace('.myshopify.com', '');
+    const returnUrl = `https://admin.shopify.com/store/${shopName}/apps/pricefy-1?billing_success=1&plan=${plan.name}`;
     
-    console.log(`📋 Return URL: ${returnUrl}`);
+    console.log(`📋 Return URL (vers admin Shopify): ${returnUrl}`);
     
     const isTestMode = process.env.SHOPIFY_BILLING_TEST === "true" || 
                       process.env.NODE_ENV === "development" ||

@@ -31,15 +31,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   const url = new URL(request.url);
 
-    // ✅ Détection des callbacks de billing
-    const callbackType = url.searchParams.get("callback");
-    const callbackShop = url.searchParams.get("shop");
-    const callbackPlan = url.searchParams.get("plan");
+  // ✅ FIX: Détecter le retour de billing depuis Shopify admin
+  const billingSuccess = url.searchParams.get("billing_success");
+  const billingPlan = url.searchParams.get("plan");
+  
+  if (billingSuccess === "1" && billingPlan) {
+    console.log(`🔄 Billing success detected, triggering sync for plan: ${billingPlan}`);
+    return redirect("/app/sync-subscription");
+  }
 
-    if (callbackType === "billing" && callbackShop === session.shop) {
-      console.log(`🔄 Billing callback detected, triggering sync for plan: ${callbackPlan}`);
-      return redirect("/app/sync-subscription");
-    }
+  // ✅ Détection des callbacks de billing (backup)
+  const callbackType = url.searchParams.get("callback");
+  const callbackShop = url.searchParams.get("shop");
+  const callbackPlan = url.searchParams.get("plan");
+
+  if (callbackType === "billing" && callbackShop === session.shop) {
+    console.log(`🔄 Billing callback detected, triggering sync for plan: ${callbackPlan}`);
+    return redirect("/app/sync-subscription");
+  }
     
     // ✅ Détection automatique de retour depuis la page de tarification Shopify
     const referrer = request.headers.get("referer") || "";
