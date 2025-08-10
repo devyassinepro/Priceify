@@ -1,6 +1,8 @@
 import { json, LoaderFunctionArgs, redirect } from "@remix-run/node";
 import { useLoaderData, Link, useSearchParams } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
+import { updateSubscription } from "../models/subscription.server";
+import { PLANS } from "../lib/plans";
 import {
   Card,
   Layout,
@@ -27,31 +29,168 @@ import { getPlan, formatPriceDisplay } from "../lib/plans";
 import { useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  
+  const { admin, session } = await authenticate.admin(request);
+
   const url = new URL(request.url);
-
-    // ✅ Détection des callbacks de billing
-    const callbackType = url.searchParams.get("callback");
-    const callbackShop = url.searchParams.get("shop");
-    const callbackPlan = url.searchParams.get("plan");
-
-    if (callbackType === "billing" && callbackShop === session.shop) {
-      console.log(`🔄 Billing callback detected, triggering sync for plan: ${callbackPlan}`);
-      return redirect("/app/sync-subscription");
-    }
-    
-    // ✅ Détection automatique de retour depuis la page de tarification Shopify
-    const referrer = request.headers.get("referer") || "";
-    const fromShopifyPricing = referrer.includes("/charges/priceboost/pricing_plans") || 
-                              referrer.includes("shopify.com") && url.searchParams.has("upgraded");
-    
-    // Si l'utilisateur vient de la page de tarification Shopify, synchroniser automatiquement
-    if (fromShopifyPricing && !url.searchParams.get("sync")) {
-      console.log(`🔄 User returned from Shopify pricing page, triggering sync...`);
-      return redirect("/app/sync-subscription");
-    }
+  const shop = url.searchParams.get("shop");
+  const planParam = url.searchParams.get("plan");
+  const charge_id = url.searchParams.get("charge_id");
   
+  console.log(`🔄 Billing callback received for shop: ${shop}, plan: ${planParam}`);
+  console.log(`🔗 Full callback URL: ${url.toString()}`);
+  
+  // Check required parameters
+  if (!shop) {
+    console.error(`❌ No shop parameter in callback URL`);
+    return redirect("/auth/login?error=missing_shop");
+  }
+
+   // Check required parameters
+   if (!shop) {
+    console.error(`❌ No shop parameter in callback URL`);
+    return redirect("/auth/login?error=missing_shop");
+  }
+  
+  try {
+    // Try to authenticate with the request
+    const { admin, session } = await authenticate.admin(request);
+    
+    console.log(`✅ Authentication successful for ${session.shop}`);
+    
+    // Verify shop matches
+    if (session.shop !== shop) {
+      console.error(`❌ Shop mismatch: session=${session.shop}, callback=${shop}`);
+      return redirect(`/auth/login?shop=${shop}`);
+    }
+    
+    // Get active subscriptions from Shopify to verify the payment
+    const response = await admin.graphql(`
+      query GetActiveSubscriptions {
+        app {
+          installation {
+            activeSubscriptions {
+              id
+              name
+              status
+              currentPeriodEnd
+              createdAt
+              lineItems {
+                plan {
+                  pricingDetails {
+                    ... on AppRecurringPricing {
+                      price {
+                        amount
+                        currencyCode
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+
+    const data = await response.json();
+    const activeSubscriptions = data.data?.app?.installation?.activeSubscriptions || [];
+    
+    console.log(`📊 Found ${activeSubscriptions.length} active subscriptions`);
+    
+    if (activeSubscriptions.length === 0) {
+      console.error(`❌ No active subscriptions found after payment`);
+      return redirect("/app?error=no_subscription_found");
+    }
+    
+    // Get the most recent subscription
+    const latestSubscription = activeSubscriptions.sort((a: any, b: any) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )[0];
+    
+    if (latestSubscription.status !== "ACTIVE") {
+      console.log(`⚠️ Subscription status: ${latestSubscription.status}`);
+      return redirect("/app?error=subscription_not_active");
+    }
+    
+    const amount = latestSubscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount;
+    const subscriptionId = latestSubscription.id.split('/').pop();
+    
+    console.log(`💰 Processing subscription: ${subscriptionId}, amount: ${amount}`);
+    
+    // Determine plan based on price
+    let planName = planParam || "free";
+    if (amount) {
+      const priceFloat = parseFloat(amount);
+      for (const [key, plan] of Object.entries(PLANS)) {
+        if (Math.abs(plan.price - priceFloat) < 0.02) {
+          planName = key;
+          console.log(`✅ Matched plan: ${planName} for price $${priceFloat}`);
+          break;
+        }
+      }
+    }
+    
+    // Update local subscription
+    await updateSubscription(session.shop, {
+      planName,
+      status: "active",
+      subscriptionId,
+      usageLimit: PLANS[planName].usageLimit,
+      currentPeriodEnd: latestSubscription.currentPeriodEnd ? 
+        new Date(latestSubscription.currentPeriodEnd) : 
+        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+    
+    console.log(`✅ Subscription updated successfully: ${planName}`);
+    
+    // Redirect to app with success parameters
+    return redirect(`/app?sync=success&plan=${planName}&upgraded=true`);
+    
+  } catch (authError: any) {
+    console.log(`⚠️ Admin auth failed, trying alternative approach:`, authError.message);
+    
+    // If authentication fails, try to handle it gracefully
+    if (authError.message?.includes('unauthorized') || authError.message?.includes('login')) {
+      // Construct a safe redirect URL back to the app
+      const redirectParams = new URLSearchParams();
+      redirectParams.set('shop', shop);
+      if (planParam) redirectParams.set('plan', planParam);
+      if (charge_id) redirectParams.set('charge_id', charge_id);
+      redirectParams.set('callback', 'billing');
+      
+      const safeRedirectUrl = `/app?${redirectParams.toString()}`;
+      console.log(`🔄 Redirecting to app for re-authentication: ${safeRedirectUrl}`);
+      
+      return redirect(safeRedirectUrl);
+    }
+    
+    // For other errors, redirect with error message
+    console.error(`💥 Billing callback error:`, authError);
+    return redirect(`/app?error=callback_failed&message=${encodeURIComponent(authError.message)}`);
+  }
+    // ✅ Détection des callbacks de billing
+    // const callbackType = url.searchParams.get("callback");
+    // const callbackShop = url.searchParams.get("shop");
+    // const callbackPlan = url.searchParams.get("plan");
+
+    // if (callbackType === "billing" && callbackShop === session.shop) {
+    //   console.log(`🔄 Billing callback detected, triggering sync for plan: ${callbackPlan}`);
+    //   return redirect("/app/sync-subscription");
+    // }
+    
+    // // ✅ Détection automatique de retour depuis la page de tarification Shopify
+    // const referrer = request.headers.get("referer") || "";
+    // const fromShopifyPricing = referrer.includes("/charges/priceboost/pricing_plans") || 
+    //                           referrer.includes("shopify.com") && url.searchParams.has("upgraded");
+    
+    // // Si l'utilisateur vient de la page de tarification Shopify, synchroniser automatiquement
+    // if (fromShopifyPricing && !url.searchParams.get("sync")) {
+    //   console.log(`🔄 User returned from Shopify pricing page, triggering sync...`);
+    //   return redirect("/app/sync-subscription");
+    // }
+  
+    console.log(`✅ Authentication successful for ${session.shop}`);
+
   // Récupérer les données d'abonnement
   const subscriptionStats = await getSubscriptionStats(session.shop);
   const plan = getPlan(subscriptionStats.planName);
