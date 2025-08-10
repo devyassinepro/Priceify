@@ -19,7 +19,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   // ✅ FIX: Rediriger vers l'admin Shopify avec les paramètres de billing
   const shopName = shop.replace('.myshopify.com', '');
-  const adminUrl = `https://admin.shopify.com/store/${shopName}/apps/pricefy-1?billing_success=1&plan=${planParam || 'unknown'}`;
+  const adminUrl = `https://admin.shopify.com/store/${shopName}/apps/priceboost?billing_success=1&plan=${planParam || 'unknown'}`;
   
   console.log(`🔄 Redirecting to Shopify admin: ${adminUrl}`);
   

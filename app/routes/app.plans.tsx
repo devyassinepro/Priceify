@@ -50,7 +50,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // ✅ FIX: Rediriger vers l'admin Shopify pour maintenir le contexte d'authentification
     const shopDomain = session.shop;
     const shopName = shopDomain.replace('.myshopify.com', '');
-    const returnUrl = `https://admin.shopify.com/store/${shopName}/apps/pricefy-1?billing_success=1&plan=${plan.name}`;
+    const returnUrl = `https://admin.shopify.com/store/${shopName}/apps/priceboost?billing_success=1&plan=${plan.name}`;
     
     console.log(`📋 Return URL (vers admin Shopify): ${returnUrl}`);
     
