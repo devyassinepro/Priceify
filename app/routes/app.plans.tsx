@@ -21,7 +21,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   process.env.NODE_ENV === "development" ||
   session.shop.includes("test-") ||
   session.shop.includes("dev-");
-  
+
   return json({
     shop: session.shop,
     subscription,
@@ -29,116 +29,103 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     isTestMode 
   });
 };
-
 export const action = async ({ request }: ActionFunctionArgs) => {
-    const { admin, session } = await authenticate.admin(request);
-  
-    try {
-      const formData = await request.formData();
-      const selectedPlan = formData.get("plan") as string;
-      
-      if (!selectedPlan || !PLANS[selectedPlan]) {
-        return json<ActionResult>({ error: "Invalid plan selected" });
-      }
-      
-      const plan = PLANS[selectedPlan];
-      
-      if (plan.name === "free") {
-        return json<ActionResult>({ error: "You're already on the free plan" });
-      }
-      
-      console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
-      
-      // ✅ CORRECTION: Construction de l'URL de retour plus robuste
-      const baseUrl = process.env.SHOPIFY_APP_URL || `https://${request.headers.get('host')}`;
-      const returnUrl = `${baseUrl}/app/billing/callback`;
+  const { admin, session } = await authenticate.admin(request);
 
-      // ✅ CORRECTION: Mode test indépendant de NODE_ENV
-            const isTestMode = process.env.SHOPIFY_BILLING_TEST === "true" || 
-            process.env.NODE_ENV === "development" ||
-            session.shop.includes("test-") ||
-            session.shop.includes("dev-");
-
+  try {
+    const formData = await request.formData();
+    const selectedPlan = formData.get("plan") as string;
+    
+    if (!selectedPlan || !PLANS[selectedPlan]) {
+      return json<ActionResult>({ error: "Invalid plan selected" });
+    }
+    
+    const plan = PLANS[selectedPlan];
+    
+    if (plan.name === "free") {
+      return json<ActionResult>({ error: "You're already on the free plan" });
+    }
+    
+    console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
+    
+    // ✅ CORRECTION: URL de retour avec paramètres pour maintenir le contexte
+    const baseUrl = process.env.SHOPIFY_APP_URL || `https://${request.headers.get('host')}`;
+    const returnUrl = `${baseUrl}/app/billing/callback?shop=${session.shop}&plan=${plan.name}`;
+    
+    console.log(`📋 Return URL: ${returnUrl}`);
+    
+    const isTestMode = process.env.SHOPIFY_BILLING_TEST === "true" || 
+                      process.env.NODE_ENV === "development" ||
+                      session.shop.includes("test-") ||
+                      session.shop.includes("dev-");
+    
     console.log(`🧪 Test mode: ${isTestMode}`);
-      
-      console.log(`📋 Return URL: ${returnUrl}`);
-      console.log(`📋 Base URL: ${baseUrl}`);
-      
-      // Vérification que l'URL est valide
-      try {
-        new URL(returnUrl);
-      } catch (urlError) {
-        console.error(`❌ Invalid return URL: ${returnUrl}`);
-        return json<ActionResult>({ 
-          error: `Invalid return URL configuration. Please contact support.` 
-        });
-      }
-      
-      const response = await admin.graphql(`
-        mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
-          appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
-            appSubscription {
-              id
-            }
-            confirmationUrl
-            userErrors {
-              field
-              message
-            }
+    
+    const response = await admin.graphql(`
+      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
+        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
+          appSubscription {
+            id
+          }
+          confirmationUrl
+          userErrors {
+            field
+            message
           }
         }
-      `, {
-        variables: {
-          name: plan.displayName,
-          returnUrl: returnUrl,
-          test: isTestMode, // ✅ Utilise la variable calculée
-          lineItems: [
-            {
-              plan: {
-                appRecurringPricingDetails: {
-                  price: { amount: plan.price, currencyCode: "USD" },
-                  interval: "EVERY_30_DAYS"
-                }
+      }
+    `, {
+      variables: {
+        name: plan.displayName,
+        returnUrl: returnUrl, // ✅ URL avec paramètres
+        test: isTestMode,
+        lineItems: [
+          {
+            plan: {
+              appRecurringPricingDetails: {
+                price: { amount: plan.price, currencyCode: "USD" },
+                interval: "EVERY_30_DAYS"
               }
             }
-          ]
-        }
-      });
-      
-      const result = await response.json();
-      console.log(`📊 GraphQL response:`, JSON.stringify(result, null, 2));
-      
-      if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
-        const errors = result.data.appSubscriptionCreate.userErrors;
-        console.error(` Billing errors:`, errors);
-        return json<ActionResult>({ 
-            error: `Billing error: ${errors.map((e: any) => e.message).join(', ')}`
-        });
+          }
+        ]
       }
-      
-      const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
-      
-      if (!confirmationUrl) {
-        console.error(` No confirmation URL received`);
-        return json<ActionResult>({ 
-          error: "Failed to create subscription - no confirmation URL" 
-        });
-      }
-      
-      console.log(`✅ Billing charge created successfully`);
-      console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
-      
+    });
+    
+    const result = await response.json();
+    console.log(`📊 GraphQL response:`, JSON.stringify(result, null, 2));
+    
+    if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
+      const errors = result.data.appSubscriptionCreate.userErrors;
+      console.error(`❌ Billing errors:`, errors);
       return json<ActionResult>({ 
-        success: true, 
-        confirmationUrl 
-      });
-      
-    } catch (error: any) {
-      console.error(`💥 Billing creation failed:`, error);
-      return json<ActionResult>({ 
-        error: `Failed to create subscription: ${error.message}` 
+        error: `Billing error: ${errors.map((e: any) => e.message).join(', ')}`
       });
     }
+    
+    const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
+    
+    if (!confirmationUrl) {
+      console.error(`❌ No confirmation URL received`);
+      return json<ActionResult>({ 
+        error: "Failed to create subscription - no confirmation URL" 
+      });
+    }
+    
+    console.log(`✅ Billing charge created successfully`);
+    console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
+    
+    return json<ActionResult>({ 
+      success: true, 
+      confirmationUrl 
+    });
+    
+  } catch (error: any) {
+    console.error(`💥 Billing creation failed:`, error);
+    return json<ActionResult>({ 
+      error: `Failed to create subscription: ${error.message}` 
+    });
+  }
 };
 
 export default function Plans() {
