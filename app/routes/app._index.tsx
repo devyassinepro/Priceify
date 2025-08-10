@@ -30,16 +30,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   
   const url = new URL(request.url);
-  
-  // ✅ Détection automatique de retour depuis la page de tarification Shopify
-  const referrer = request.headers.get("referer") || "";
-  const fromShopifyPricing = referrer.includes("/charges/priceboost/pricing_plans");
-  
-  // Si l'utilisateur vient de la page de tarification Shopify, synchroniser automatiquement
-  if (fromShopifyPricing && !url.searchParams.get("sync")) {
-    console.log(`🔄 User returned from Shopify pricing page, triggering sync...`);
-    return redirect("/app/sync-subscription");
-  }
+
+    // ✅ Détection des callbacks de billing
+    const callbackType = url.searchParams.get("callback");
+    const callbackShop = url.searchParams.get("shop");
+    const callbackPlan = url.searchParams.get("plan");
+
+    if (callbackType === "billing" && callbackShop === session.shop) {
+      console.log(`🔄 Billing callback detected, triggering sync for plan: ${callbackPlan}`);
+      return redirect("/app/sync-subscription");
+    }
+    
+    // ✅ Détection automatique de retour depuis la page de tarification Shopify
+    const referrer = request.headers.get("referer") || "";
+    const fromShopifyPricing = referrer.includes("/charges/priceboost/pricing_plans") || 
+                              referrer.includes("shopify.com") && url.searchParams.has("upgraded");
+    
+    // Si l'utilisateur vient de la page de tarification Shopify, synchroniser automatiquement
+    if (fromShopifyPricing && !url.searchParams.get("sync")) {
+      console.log(`🔄 User returned from Shopify pricing page, triggering sync...`);
+      return redirect("/app/sync-subscription");
+    }
   
   // Récupérer les données d'abonnement
   const subscriptionStats = await getSubscriptionStats(session.shop);
