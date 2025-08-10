@@ -45,11 +45,7 @@ redirect_urls = [
   "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback",
   "https://pricebooster-app-hkfq8.ondigitalocean.app/app/billing/callback",
   "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/success",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/callback",
-  # Add these new ones for better compatibility
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/app",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/app/",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/"
+  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/callback"
 ]
 
 [pos]

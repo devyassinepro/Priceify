@@ -7,30 +7,42 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop");
   const planParam = url.searchParams.get("plan");
-  const charge_id = url.searchParams.get("charge_id");
   
   console.log(`🔄 Billing callback received for shop: ${shop}, plan: ${planParam}`);
   console.log(`🔗 Full callback URL: ${url.toString()}`);
   
-  // Check required parameters
+  // ✅ Vérifier les paramètres requis
   if (!shop) {
     console.error(`❌ No shop parameter in callback URL`);
     return redirect("/auth/login?error=missing_shop");
   }
   
   try {
-    // Try to authenticate with the request
-    const { admin, session } = await authenticate.admin(request);
+    // ✅ MÉTHODE 1: Essayer l'authentification normale d'abord
+    let admin, session;
     
-    console.log(`✅ Authentication successful for ${session.shop}`);
+    try {
+      const authResult = await authenticate.admin(request);
+      admin = authResult.admin;
+      session = authResult.session;
+      console.log(`✅ Authentication successful for ${session.shop}`);
+    } catch (authError) {
+      console.log(`⚠️ Admin auth failed, trying alternative method:`, authError);
+      
+      // ✅ MÉTHODE 2: Authentification alternative pour callback
+      // Construire une URL de redirection vers l'app avec les paramètres
+      const appUrl = `/app?callback=billing&shop=${shop}&plan=${planParam || 'unknown'}`;
+      console.log(`🔄 Redirecting to app with callback params: ${appUrl}`);
+      return redirect(appUrl);
+    }
     
-    // Verify shop matches
+    // ✅ Si l'authentification a réussi, continuer avec la logique normale
     if (session.shop !== shop) {
       console.error(`❌ Shop mismatch: session=${session.shop}, callback=${shop}`);
       return redirect(`/auth/login?shop=${shop}`);
     }
     
-    // Get active subscriptions from Shopify to verify the payment
+    // Récupérer les abonnements actifs depuis Shopify
     const response = await admin.graphql(`
       query GetActiveSubscriptions {
         app {
@@ -65,11 +77,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.log(`📊 Found ${activeSubscriptions.length} active subscriptions`);
     
     if (activeSubscriptions.length === 0) {
-      console.error(`❌ No active subscriptions found after payment`);
+      console.error(`❌ No active subscriptions found after callback`);
       return redirect("/app?error=no_subscription_found");
     }
     
-    // Get the most recent subscription
+    // Prendre l'abonnement le plus récent
     const latestSubscription = activeSubscriptions.sort((a: any, b: any) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )[0];
@@ -84,7 +96,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     
     console.log(`💰 Processing subscription: ${subscriptionId}, amount: ${amount}`);
     
-    // Determine plan based on price
+    // Déterminer le plan basé sur le prix
     let planName = planParam || "free";
     if (amount) {
       const priceFloat = parseFloat(amount);
@@ -97,7 +109,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       }
     }
     
-    // Update local subscription
+    // Mettre à jour l'abonnement local
     await updateSubscription(session.shop, {
       planName,
       status: "active",
@@ -110,30 +122,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     
     console.log(`✅ Subscription updated successfully: ${planName}`);
     
-    // Redirect to app with success parameters
+    // ✅ REDIRECTION SÉCURISÉE vers l'app avec paramètres de succès
     return redirect(`/app?sync=success&plan=${planName}&upgraded=true`);
     
-  } catch (authError: any) {
-    console.log(`⚠️ Admin auth failed, trying alternative approach:`, authError.message);
-    
-    // If authentication fails, try to handle it gracefully
-    if (authError.message?.includes('unauthorized') || authError.message?.includes('login')) {
-      // Construct a safe redirect URL back to the app
-      const redirectParams = new URLSearchParams();
-      redirectParams.set('shop', shop);
-      if (planParam) redirectParams.set('plan', planParam);
-      if (charge_id) redirectParams.set('charge_id', charge_id);
-      redirectParams.set('callback', 'billing');
-      
-      const safeRedirectUrl = `/app?${redirectParams.toString()}`;
-      console.log(`🔄 Redirecting to app for re-authentication: ${safeRedirectUrl}`);
-      
-      return redirect(safeRedirectUrl);
-    }
-    
-    // For other errors, redirect with error message
-    console.error(`💥 Billing callback error:`, authError);
-    return redirect(`/app?error=callback_failed&message=${encodeURIComponent(authError.message)}`);
+  } catch (error: any) {
+    console.error(`💥 Billing callback error:`, error);
+    return redirect(`/app?error=callback_failed&message=${encodeURIComponent(error.message)}`);
   }
 };
 
