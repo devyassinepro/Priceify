@@ -11,7 +11,6 @@ import {
   Banner,
   Grid,
   ProgressBar,
-  Badge,
   Icon,
   BlockStack,
   InlineStack,
@@ -31,35 +30,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   const url = new URL(request.url);
 
-  // ✅ FIX: Détecter le retour de billing depuis Shopify admin
-  const billingSuccess = url.searchParams.get("billing_success");
-  const billingPlan = url.searchParams.get("plan");
+  // ✅ DÉTECTION BILLING COMPLETED
+  const billingCompleted = url.searchParams.get("billing_completed");
+  const syncNeeded = url.searchParams.get("sync_needed");
   
-  if (billingSuccess === "1" && billingPlan) {
-    console.log(`🔄 Billing success detected, triggering sync for plan: ${billingPlan}`);
+  if (billingCompleted === "1" && syncNeeded === "1") {
+    console.log(`🔄 Billing completed detected, triggering automatic sync...`);
     return redirect("/app/sync-subscription");
   }
-
-  // ✅ Détection des callbacks de billing (backup)
-  const callbackType = url.searchParams.get("callback");
-  const callbackShop = url.searchParams.get("shop");
-  const callbackPlan = url.searchParams.get("plan");
-
-  if (callbackType === "billing" && callbackShop === session.shop) {
-    console.log(`🔄 Billing callback detected, triggering sync for plan: ${callbackPlan}`);
-    return redirect("/app/sync-subscription");
-  }
-    
-    // ✅ Détection automatique de retour depuis la page de tarification Shopify
-    const referrer = request.headers.get("referer") || "";
-    const fromShopifyPricing = referrer.includes("/charges/priceboost/pricing_plans") || 
-                              referrer.includes("shopify.com") && url.searchParams.has("upgraded");
-    
-    // Si l'utilisateur vient de la page de tarification Shopify, synchroniser automatiquement
-    if (fromShopifyPricing && !url.searchParams.get("sync")) {
-      console.log(`🔄 User returned from Shopify pricing page, triggering sync...`);
-      return redirect("/app/sync-subscription");
-    }
   
   // Récupérer les données d'abonnement
   const subscriptionStats = await getSubscriptionStats(session.shop);
@@ -102,10 +80,6 @@ export default function Index() {
   const isNearLimit = usagePercentage > 80;
   const hasReachedLimit = usagePercentage >= 100;
 
-  // ✅ URL de tarification Shopify
-  const shopName = shop.replace('.myshopify.com', '');
-  const shopifyBillingUrl = `https://admin.shopify.com/store/${shopName}/charges/priceboost/pricing_plans`;
-
   // Nettoyer les paramètres de sync après 5 secondes
   useEffect(() => {
     if (syncStatus) {
@@ -122,7 +96,7 @@ export default function Index() {
   }, [syncStatus, searchParams, setSearchParams]);
 
   return (
-    <Page title="Dashboard" subtitle={`Welcome back to Dynamic Pricing for ${shop}`}>
+    <Page title="Dashboard" subtitle={`Dynamic Pricing for ${shop}`}>
       <Layout>
         {/* Bannières de synchronisation */}
         {syncStatus === "success" && (
@@ -152,16 +126,6 @@ export default function Index() {
               <Text as="p">
                 There was an issue synchronizing your subscription: {syncMessage}. 
                 Please try refreshing the page or contact support if the issue persists.
-              </Text>
-            </Banner>
-          </Layout.Section>
-        )}
-        
-        {syncStatus === "inactive_subscription" && (
-          <Layout.Section>
-            <Banner title="⏳ Subscription Processing" tone="info">
-              <Text as="p">
-                Your subscription is being processed. Please check back in a few minutes.
               </Text>
             </Banner>
           </Layout.Section>
@@ -284,7 +248,7 @@ export default function Index() {
                     </div>
                     
                     <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-                    <Link to="/app/pricing">
+                      <Link to="/app/pricing">
                         <Button variant="primary" size="large" disabled={hasReachedLimit}>
                           {hasReachedLimit ? "Upgrade to Continue" : "Update Prices"}
                         </Button>
@@ -365,11 +329,11 @@ export default function Index() {
                     Upgrade to Standard (500 products) or Pro (unlimited products) to unlock your pricing potential.
                   </Text>
                   <div>
-                        <Link to="/app/plans">
-                          <Button size="large" tone="success">
-                            🚀 View Pricing Plans
-                          </Button>
-                        </Link>
+                    <Link to="/app/plans">
+                      <Button size="large" tone="success">
+                        🚀 View Pricing Plans
+                      </Button>
+                    </Link>
                   </div>
                   <Text as="p" variant="bodySm" tone="inherit">
                     ✨ After upgrading, return here and your new plan will be automatically activated!

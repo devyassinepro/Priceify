@@ -1,4 +1,4 @@
-# shopify.app.toml - Update webhooks to use single GDPR endpoint
+# ✅ CLEAN SHOPIFY APP CONFIGURATION
 
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
@@ -22,7 +22,7 @@ uri = "/webhooks/app/uninstalled"
 topics = [ "app/scopes_update" ]
 uri = "/webhooks/app/scopes_update"
 
-# ✅ GDPR compliance webhooks - ALL pointing to same endpoint
+# ✅ GDPR compliance webhooks
 [[webhooks.subscriptions]]
 topics = [ "customers/data_request" ]
 uri = "/webhooks/gdpr"
@@ -41,24 +41,13 @@ scopes = "read_products,write_products"
 [auth]
 redirect_urls = [
   "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", 
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/app/billing/callback",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/success",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/callback",
-  # ✅ FIX: Autoriser les redirections vers l'admin Shopify
-  "https://admin.shopify.com/store/*/apps/pricefy-1",
-  "https://admin.shopify.com/store/*/apps/pricefy-1/*"
+  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing-return"
 ]
 
 [pos]
 embedded = false
 
-# [app_proxy]
-url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
-subpath = "apps/dynamic-pricing"
-
-# Legal URLs for App Store approval  
+# ✅ LEGAL URLS for App Store approval  
 privacy_policy_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/privacy-policy"
 terms_of_service_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/terms-of-service"
 support_url = "https://pricebooster-app-hkfq8.ondigitalocean.app/support"

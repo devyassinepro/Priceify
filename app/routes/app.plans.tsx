@@ -1,7 +1,7 @@
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, Form } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import {Card,Layout,Page,Text,Button,Grid,Badge,List,Banner,BlockStack} from "@shopify/polaris";
+import { Card, Layout, Page, Text, Button, Grid, Badge, List, Banner, BlockStack } from "@shopify/polaris";
 import { getOrCreateSubscription } from "../models/subscription.server";
 import { PLANS } from "../lib/plans";
 import { useEffect } from "react";
@@ -14,56 +14,43 @@ interface ActionResult {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const subscription = await getOrCreateSubscription(session.shop);  
-
-  const isTestMode = process.env.SHOPIFY_BILLING_TEST === "true" || 
-  process.env.NODE_ENV === "development" ||
-  session.shop.includes("test-") ||
-  session.shop.includes("dev-");
+  const subscription = await getOrCreateSubscription(session.shop);
 
   return json({
     shop: session.shop,
     subscription,
     plans: Object.values(PLANS),
-    isTestMode 
   });
 };
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
 
   try {
     const formData = await request.formData();
     const selectedPlan = formData.get("plan") as string;
-    
+
     if (!selectedPlan || !PLANS[selectedPlan]) {
       return json<ActionResult>({ error: "Invalid plan selected" });
     }
-    
+
     const plan = PLANS[selectedPlan];
-    
+
     if (plan.name === "free") {
       return json<ActionResult>({ error: "You're already on the free plan" });
     }
-    
+
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
-    
-    // ✅ FIX: Rediriger vers l'admin Shopify pour maintenir le contexte d'authentification
-    const shopDomain = session.shop;
-    const shopName = shopDomain.replace('.myshopify.com', '');
-    const returnUrl = `https://admin.shopify.com/store/${shopName}/apps/priceboost?billing_success=1&plan=${plan.name}`;
-    
-    console.log(`📋 Return URL (vers admin Shopify): ${returnUrl}`);
-    
-    const isTestMode = process.env.SHOPIFY_BILLING_TEST === "true" || 
-                      process.env.NODE_ENV === "development" ||
-                      session.shop.includes("test-") ||
-                      session.shop.includes("dev-");
-    
-    console.log(`🧪 Test mode: ${isTestMode}`);
-    
+
+    // ✅ SIMPLE: Return URL qui redirige vers notre app avec un délai pour la sync
+    const baseUrl = process.env.SHOPIFY_APP_URL || `https://pricebooster-app-hkfq8.ondigitalocean.app`;
+    const returnUrl = `${baseUrl}/billing-return`;
+
+    console.log(`📋 Return URL: ${returnUrl}`);
+
     const response = await admin.graphql(`
-      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean, $lineItems: [AppSubscriptionLineItemInput!]!) {
-        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
+      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $lineItems: [AppSubscriptionLineItemInput!]!) {
+        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, lineItems: $lineItems) {
           appSubscription {
             id
           }
@@ -77,8 +64,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     `, {
       variables: {
         name: plan.displayName,
-        returnUrl: returnUrl, // ✅ URL avec paramètres
-        test: isTestMode,
+        returnUrl: returnUrl,
         lineItems: [
           {
             plan: {
@@ -91,69 +77,57 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         ]
       }
     });
-    
+
     const result = await response.json();
     console.log(`📊 GraphQL response:`, JSON.stringify(result, null, 2));
-    
+
     if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
       const errors = result.data.appSubscriptionCreate.userErrors;
       console.error(`❌ Billing errors:`, errors);
-      return json<ActionResult>({ 
+      return json<ActionResult>({
         error: `Billing error: ${errors.map((e: any) => e.message).join(', ')}`
       });
     }
-    
+
     const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
-    
+
     if (!confirmationUrl) {
       console.error(`❌ No confirmation URL received`);
-      return json<ActionResult>({ 
-        error: "Failed to create subscription - no confirmation URL" 
+      return json<ActionResult>({
+        error: "Failed to create subscription - no confirmation URL"
       });
     }
-    
+
     console.log(`✅ Billing charge created successfully`);
     console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
-    
-    return json<ActionResult>({ 
-      success: true, 
-      confirmationUrl 
+
+    return json<ActionResult>({
+      success: true,
+      confirmationUrl
     });
-    
+
   } catch (error: any) {
     console.error(`💥 Billing creation failed:`, error);
-    return json<ActionResult>({ 
-      error: `Failed to create subscription: ${error.message}` 
+    return json<ActionResult>({
+      error: `Failed to create subscription: ${error.message}`
     });
   }
 };
 
 export default function Plans() {
-  const { shop, subscription, plans,isTestMode } = useLoaderData<typeof loader>();
+  const { shop, subscription, plans } = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionResult>();
-  
-  // ✅ REDIRECTION AUTOMATIQUE VERS SHOPIFY
+
+  // ✅ REDIRECTION VERS SHOPIFY BILLING
   useEffect(() => {
     if (actionData?.success && actionData.confirmationUrl) {
       window.top!.location.href = actionData.confirmationUrl;
     }
   }, [actionData]);
-  
+
   return (
     <Page title="Choose Your Plan" backAction={{ content: "← Dashboard", url: "/app" }}>
       <Layout>
-
-          {/* ✅ Afficher un banner en mode test */}
-          {isTestMode && (
-          <Layout.Section>
-            <Banner title="🧪 Test Mode Active" tone="info">
-              <Text as="p">
-                Billing is in test mode - no real charges will be made. 
-                Perfect for testing your subscription flow!
-              </Text>
-            </Banner>
-          </Layout.Section>
-        )}
         {actionData?.error && (
           <Layout.Section>
             <Banner title="Subscription Error" tone="critical">
@@ -161,7 +135,7 @@ export default function Plans() {
             </Banner>
           </Layout.Section>
         )}
-        
+
         {actionData?.success && (
           <Layout.Section>
             <Banner title="🔄 Redirecting to Shopify..." tone="info">
@@ -180,7 +154,7 @@ export default function Plans() {
                       <Text as="h3" variant="headingLg">{plan.displayName}</Text>
                       {plan.recommended && <Badge tone="success">Most Popular</Badge>}
                     </div>
-                    
+
                     <div style={{ marginBottom: "2rem" }}>
                       <Text as="p" variant="headingXl">
                         {plan.price === 0 ? "Free" : `$${plan.price}`}
@@ -189,13 +163,13 @@ export default function Plans() {
                         {plan.price === 0 ? "Forever" : "per month"}
                       </Text>
                     </div>
-                    
+
                     <div style={{ marginBottom: "2rem" }}>
                       <Text as="p" variant="bodyLg" fontWeight="semibold">
                         {plan.usageLimit === 99999 ? "Unlimited" : plan.usageLimit} products/month
                       </Text>
                     </div>
-                    
+
                     <div style={{ textAlign: "left", marginBottom: "2rem" }}>
                       <List type="bullet">
                         {plan.features.slice(0, 4).map((feature, index) => (
@@ -205,7 +179,7 @@ export default function Plans() {
                         ))}
                       </List>
                     </div>
-                    
+
                     <div>
                       {subscription.planName === plan.name ? (
                         <Badge tone="success">Current Plan</Badge>

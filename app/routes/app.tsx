@@ -1,4 +1,3 @@
-
 import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
@@ -11,7 +10,6 @@ import { authenticate } from "../shopify.server";
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
   const { session } = await authenticate.admin(request);
   const subscription = await getOrCreateSubscription(session.shop);
   
@@ -35,7 +33,7 @@ export default function App() {
           🏠 Dashboard
         </Link>
         <Link to="/app/pricing">
-          💰 Dynamic Pricing
+          💰 Bulk Pricing
           {usagePercentage >= 100 && (
             <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#d73502" }}>
               (Limit Reached)
@@ -51,10 +49,7 @@ export default function App() {
           )}
         </Link>
         <Link to="/app/plans">
-          {subscription.planName === 'free' ? "⭐ View Pricing Plans" : "💳 Manage Subscription"}
-        </Link>
-        <Link to="/app/sync-subscription">
-          🔄 Sync
+          {subscription.planName === 'free' ? "⭐ Upgrade Plan" : "💳 Subscription"}
         </Link>
       </NavMenu>
       <Outlet />
