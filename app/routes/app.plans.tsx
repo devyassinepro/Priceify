@@ -42,15 +42,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
 
-    // ✅ SIMPLE: Return URL qui redirige vers notre app avec un délai pour la sync
+    // ✅ FORCER LE MODE TEST
+    const isTestMode = true; // Force le mode test pour les tests
+    
+    // ✅ URL de retour simple
     const baseUrl = process.env.SHOPIFY_APP_URL || `https://pricebooster-app-hkfq8.ondigitalocean.app`;
     const returnUrl = `${baseUrl}/billing-return`;
 
     console.log(`📋 Return URL: ${returnUrl}`);
+    console.log(`🧪 Test mode: ${isTestMode}`);
 
     const response = await admin.graphql(`
-      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $lineItems: [AppSubscriptionLineItemInput!]!) {
-        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, lineItems: $lineItems) {
+      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean!, $lineItems: [AppSubscriptionLineItemInput!]!) {
+        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
           appSubscription {
             id
           }
@@ -63,8 +67,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     `, {
       variables: {
-        name: plan.displayName,
+        name: `${plan.displayName} (Test)`, // Indiquer que c'est un test
         returnUrl: returnUrl,
+        test: isTestMode, // ✅ IMPORTANT: true pour les tests
         lineItems: [
           {
             plan: {
