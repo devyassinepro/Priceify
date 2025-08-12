@@ -7,7 +7,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log(`🎉 Billing return with charge_id: ${chargeId}`);
   console.log(`🔗 Full return URL: ${url.toString()}`);
 
-  // ✅ SIMPLE: Page de succès avec redirection automatique vers l'app
+  // ✅ Page de succès avec redirection automatique vers l'app
   return new Response(`
     <!DOCTYPE html>
     <html>
