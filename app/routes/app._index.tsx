@@ -29,13 +29,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   
   const url = new URL(request.url);
+  console.log(`🏠 App index loaded for ${session.shop}`);
+  console.log(`🔗 Full URL: ${url.toString()}`);
 
   // ✅ DÉTECTION BILLING COMPLETED
   const billingCompleted = url.searchParams.get("billing_completed");
   const syncNeeded = url.searchParams.get("sync_needed");
+  const chargeId = url.searchParams.get("charge_id");
+  
+  console.log(`📋 Billing params detected:`);
+  console.log(`- billing_completed: ${billingCompleted}`);
+  console.log(`- sync_needed: ${syncNeeded}`);
+  console.log(`- charge_id: ${chargeId}`);
   
   if (billingCompleted === "1" && syncNeeded === "1") {
     console.log(`🔄 Billing completed detected, triggering automatic sync...`);
+    console.log(`💳 Charge ID: ${chargeId || 'Not provided'}`);
     return redirect("/app/sync-subscription");
   }
   

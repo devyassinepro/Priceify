@@ -6,10 +6,14 @@ import { PLANS } from "../lib/plans";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   
-  console.log(`🔄 Synchronizing subscription for ${session.shop}...`);
+  const url = new URL(request.url);
+  console.log(`🔄 === SYNC SUBSCRIPTION STARTED ===`);
+  console.log(`🏪 Shop: ${session.shop}`);
+  console.log(`🔗 Sync URL: ${url.toString()}`);
   
   try {
-    // ✅ REQUÊTE SIMPLE pour récupérer les abonnements actifs
+    // ✅ REQUÊTE pour récupérer les abonnements actifs
+    console.log(`📡 Querying Shopify for active subscriptions...`);
     const response = await admin.graphql(`
       query GetAppSubscriptions {
         app {
@@ -19,6 +23,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
               name
               status
               currentPeriodEnd
+              createdAt
               lineItems {
                 plan {
                   pricingDetails {
@@ -38,37 +43,53 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     `);
     
     const data = await response.json();
-    console.log(`📊 Shopify subscriptions:`, JSON.stringify(data.data, null, 2));
+    console.log(`📊 Shopify GraphQL response:`);
+    console.log(JSON.stringify(data.data, null, 2));
     
     const activeSubscriptions = data.data?.app?.installation?.activeSubscriptions || [];
     const localSubscription = await getOrCreateSubscription(session.shop);
     
+    console.log(`💾 Local subscription before sync:`);
+    console.log(`- Plan: ${localSubscription.planName}`);
+    console.log(`- Status: ${localSubscription.status}`);
+    console.log(`- Usage: ${localSubscription.usageCount}/${localSubscription.usageLimit}`);
+    console.log(`- Subscription ID: ${localSubscription.subscriptionId}`);
+    
     if (activeSubscriptions.length === 0) {
       // ✅ Aucun abonnement actif = plan gratuit
-      console.log(`ℹ️ No active subscriptions found, ensuring free plan`);
+      console.log(`ℹ️ No active subscriptions found in Shopify`);
       
       if (localSubscription.planName !== "free") {
+        console.log(`🔄 Resetting to free plan (was: ${localSubscription.planName})`);
         await updateSubscription(session.shop, {
           planName: "free",
           status: "active",
-          usageLimit: PLANS.free.usageLimit
+          usageLimit: PLANS.free.usageLimit,
+          subscriptionId: undefined, // ✅ Fix: undefined instead of null
         });
         
-        return redirect("/app?sync=success&plan=free&message=Reset to free plan");
+        console.log(`✅ Successfully reset to free plan`);
+        return redirect("/app?sync=success&plan=free&message=Reset%20to%20free%20plan");
       }
       
+      console.log(`ℹ️ Already on free plan, no sync needed`);
       return redirect("/app?sync=no_subscription");
     }
     
-    // ✅ Prendre le premier abonnement actif
+    // ✅ Traiter l'abonnement actif
     const subscription = activeSubscriptions[0];
     const amount = subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount;
     const subscriptionId = subscription.id.split('/').pop();
     
-    console.log(`💰 Found subscription: ${subscription.status}, Amount: ${amount}`);
+    console.log(`💰 Processing active subscription:`);
+    console.log(`- ID: ${subscriptionId}`);
+    console.log(`- Status: ${subscription.status}`);
+    console.log(`- Amount: ${amount} ${subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.currencyCode || 'USD'}`);
+    console.log(`- Name: ${subscription.name}`);
+    console.log(`- Period End: ${subscription.currentPeriodEnd}`);
     
     if (subscription.status !== "ACTIVE") {
-      console.log(`⚠️ Subscription not active: ${subscription.status}`);
+      console.log(`⚠️ Subscription status is not ACTIVE: ${subscription.status}`);
       return redirect("/app?sync=inactive_subscription");
     }
     
@@ -80,9 +101,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       
       // Correspondance exacte avec tolérance
       for (const [key, plan] of Object.entries(PLANS)) {
+        console.log(`   Checking ${key}: ${plan.price} (difference: ${Math.abs(plan.price - priceFloat)})`);
         if (Math.abs(plan.price - priceFloat) < 0.02) {
           planName = key;
-          console.log(`✅ Matched plan: ${planName} for price $${priceFloat}`);
+          console.log(`✅ Exact match found: ${planName} for price ${priceFloat}`);
           break;
         }
       }
@@ -91,11 +113,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       if (planName === "free" && priceFloat > 0) {
         if (priceFloat >= 4.50 && priceFloat <= 5.50) {
           planName = "standard";
+          console.log(`🔄 Fallback match: standard plan for price ${priceFloat}`);
         } else if (priceFloat >= 9.50 && priceFloat <= 10.50) {
           planName = "pro";
+          console.log(`🔄 Fallback match: pro plan for price ${priceFloat}`);
+        } else {
+          console.log(`⚠️ No plan match found for price ${priceFloat}, keeping free`);
         }
-        console.log(`🔄 Fallback plan assignment: ${planName}`);
       }
+    } else {
+      console.log(`⚠️ No amount found in subscription, keeping free plan`);
     }
     
     // ✅ MISE À JOUR si nécessaire
@@ -103,10 +130,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                        localSubscription.status !== "active" ||
                        localSubscription.subscriptionId !== subscriptionId;
     
+    console.log(`🔍 Sync analysis:`);
+    console.log(`- Current plan: ${localSubscription.planName}`);
+    console.log(`- Expected plan: ${planName}`);
+    console.log(`- Current status: ${localSubscription.status}`);
+    console.log(`- Expected status: active`);
+    console.log(`- Current subscription ID: ${localSubscription.subscriptionId}`);
+    console.log(`- Expected subscription ID: ${subscriptionId}`);
+    console.log(`- Needs update: ${needsUpdate}`);
+    
     if (needsUpdate) {
       console.log(`🔄 Updating subscription: ${localSubscription.planName} → ${planName}`);
       
-      await updateSubscription(session.shop, {
+      const updateData = {
         planName,
         status: "active",
         subscriptionId,
@@ -114,17 +150,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         currentPeriodEnd: subscription.currentPeriodEnd ? 
           new Date(subscription.currentPeriodEnd) : 
           new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      });
+      };
       
-      console.log(`✅ Subscription synchronized successfully!`);
-      return redirect(`/app?sync=success&plan=${planName}`);
+      console.log(`📝 Update data:`, updateData);
+      
+      await updateSubscription(session.shop, updateData);
+      
+      console.log(`✅ === SYNC COMPLETED SUCCESSFULLY ===`);
+      console.log(`🎉 Plan updated from ${localSubscription.planName} to ${planName}`);
+      console.log(`🚀 Redirecting to dashboard with success message`);
+      
+      return redirect(`/app?sync=success&plan=${planName}&message=Subscription%20updated%20successfully`);
     } else {
-      console.log(`ℹ️ Subscription already up to date`);
-      return redirect("/app?sync=already_synced");
+      console.log(`ℹ️ === SYNC NOT NEEDED ===`);
+      console.log(`✅ Subscription already up to date`);
+      return redirect("/app?sync=already_synced&plan=" + planName);
     }
     
   } catch (error: any) {
-    console.error(`❌ Subscription sync failed:`, error);
+    console.error(`❌ === SYNC FAILED ===`);
+    console.error(`💥 Error details:`, error);
+    console.error(`📚 Stack trace:`, error.stack);
     return redirect(`/app?sync=error&message=${encodeURIComponent(error.message)}`);
   }
 };
