@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
 handle = "pricefy-1"
-application_url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
+application_url = "https://sorry-riding-realized-bangladesh.trycloudflare.com"
 embedded = true
 
 [build]
@@ -39,18 +39,7 @@ uri = "/webhooks/gdpr"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = [
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", 
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/app/billing/callback",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/success",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing/callback",
-  "https://pricebooster-app-hkfq8.ondigitalocean.app/billing-return",
-  # ✅ FIX: Autoriser les redirections vers l'admin Shopify
-  "https://admin.shopify.com/store/*/apps/pricefy-1",
-  "https://admin.shopify.com/store/*/apps/pricefy-1/*"
-]
+redirect_urls = ["https://sorry-riding-realized-bangladesh.trycloudflare.com/auth/callback", "https://sorry-riding-realized-bangladesh.trycloudflare.com/auth/shopify/callback", "https://sorry-riding-realized-bangladesh.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false
