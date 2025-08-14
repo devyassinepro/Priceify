@@ -1,15 +1,14 @@
+import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useActionData, Form } from "@remix-run/react";
+import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import { Card, Layout, Page, Text, Button, Grid, Badge, List, Banner, BlockStack } from "@shopify/polaris";
-import { getOrCreateSubscription } from "../models/subscription.server";
+import { getOrCreateSubscription, updateSubscription } from "../models/subscription.server";
 import { PLANS } from "../lib/plans";
-import { useEffect } from "react";
 
 interface ActionResult {
-  success?: boolean;
+  success?: string;
   error?: string;
-  confirmationUrl?: string;
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -28,13 +27,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   try {
     const formData = await request.formData();
-    const selectedPlan = formData.get("plan") as string;
+    const selectedPlan = formData.get("plan");
+    const actionType = formData.get("action");
 
-    if (!selectedPlan || !PLANS[selectedPlan]) {
+    if (!selectedPlan || typeof selectedPlan !== "string") {
       return json<ActionResult>({ error: "Invalid plan selected" });
     }
 
+    if (!PLANS[selectedPlan]) {
+      return json<ActionResult>({ error: "Plan not found" });
+    }
+
     const plan = PLANS[selectedPlan];
+
+    if (actionType === "cancel") {
+      // Pour l'annulation, mettre à jour directement la base de données
+      await updateSubscription(session.shop, {
+        planName: "free",
+        status: "active",
+        usageLimit: PLANS.free.usageLimit,
+        subscriptionId: undefined,
+      });
+
+      return json<ActionResult>({ success: "Subscription cancelled successfully" });
+    }
 
     if (plan.name === "free") {
       return json<ActionResult>({ error: "You're already on the free plan" });
@@ -42,16 +58,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
 
-    // ✅ FORCER LE MODE TEST
-    const isTestMode = true; // Force le mode test pour les tests
-    
-    // ✅ URL de retour simple
-    const baseUrl = process.env.SHOPIFY_APP_URL || `https://pricebooster-app-hkfq8.ondigitalocean.app`;
-    const returnUrl = `${baseUrl}/billing-return`;
-
-    console.log(`📋 Return URL: ${returnUrl}`);
-    console.log(`🧪 Test mode: ${isTestMode}`);
-
+    // Utiliser l'approche GraphQL directe
     const response = await admin.graphql(`
       mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean!, $lineItems: [AppSubscriptionLineItemInput!]!) {
         appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
@@ -67,9 +74,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     `, {
       variables: {
-        name: `${plan.displayName} (Test)`, // Indiquer que c'est un test
-        returnUrl: returnUrl,
-        test: isTestMode, // ✅ IMPORTANT: true pour les tests
+        name: plan.displayName,
+        returnUrl: `https://${session.shop}/admin/apps/pricefy-1/app?billing_success=1&plan=${selectedPlan}`,
+        test: true,
         lineItems: [
           {
             plan: {
@@ -84,11 +91,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
 
     const result = await response.json();
-    console.log(`📊 GraphQL response:`, JSON.stringify(result, null, 2));
 
     if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
       const errors = result.data.appSubscriptionCreate.userErrors;
-      console.error(`❌ Billing errors:`, errors);
       return json<ActionResult>({
         error: `Billing error: ${errors.map((e: any) => e.message).join(', ')}`
       });
@@ -97,7 +102,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
 
     if (!confirmationUrl) {
-      console.error(`❌ No confirmation URL received`);
       return json<ActionResult>({
         error: "Failed to create subscription - no confirmation URL"
       });
@@ -107,9 +111,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
 
     return json<ActionResult>({
-      success: true,
+      success: "Redirecting to billing...",
       confirmationUrl
-    });
+    } as any);
 
   } catch (error: any) {
     console.error(`💥 Billing creation failed:`, error);
@@ -120,15 +124,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Plans() {
-  const { shop, subscription, plans } = useLoaderData<typeof loader>();
-  const actionData = useActionData<ActionResult>();
+  const loaderData = useLoaderData<typeof loader>();
+  const actionData = useActionData<ActionResult & { confirmationUrl?: string }>();
+  const submit = useSubmit();
 
-  // ✅ REDIRECTION VERS SHOPIFY BILLING
-  useEffect(() => {
-    if (actionData?.success && actionData.confirmationUrl) {
+  const { shop, subscription, plans } = loaderData;
+
+  // Redirection vers Shopify billing
+  React.useEffect(() => {
+    if (actionData?.confirmationUrl) {
       window.top!.location.href = actionData.confirmationUrl;
     }
   }, [actionData]);
+
+  const handlePurchaseAction = (planName: string) => {
+    const formData = new FormData();
+    formData.append("plan", planName);
+    submit(formData, { method: "post" });
+  };
+
+  const handleCancelAction = (planName: string) => {
+    const formData = new FormData();
+    formData.append("plan", planName);
+    formData.append("action", "cancel");
+    submit(formData, { method: "post" });
+  };
 
   return (
     <Page title="Choose Your Plan" backAction={{ content: "← Dashboard", url: "/app" }}>
@@ -141,7 +161,15 @@ export default function Plans() {
           </Layout.Section>
         )}
 
-        {actionData?.success && (
+        {actionData?.success && !actionData.confirmationUrl && (
+          <Layout.Section>
+            <Banner title="Success" tone="success">
+              <Text as="p">{actionData.success}</Text>
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {actionData?.confirmationUrl && (
           <Layout.Section>
             <Banner title="🔄 Redirecting to Shopify..." tone="info">
               <Text as="p">Please wait while we redirect you to complete your subscription.</Text>
@@ -151,7 +179,7 @@ export default function Plans() {
 
         <Layout.Section>
           <Grid>
-            {plans.map((plan) => (
+            {plans.map((plan: any) => (
               <Grid.Cell key={plan.name} columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}>
                 <Card>
                   <div style={{ padding: "2rem", textAlign: "center", minHeight: "400px" }}>
@@ -177,7 +205,7 @@ export default function Plans() {
 
                     <div style={{ textAlign: "left", marginBottom: "2rem" }}>
                       <List type="bullet">
-                        {plan.features.slice(0, 4).map((feature, index) => (
+                        {plan.features.slice(0, 4).map((feature: string, index: number) => (
                           <List.Item key={index}>
                             <Text as="span" variant="bodySm">{feature}</Text>
                           </List.Item>
@@ -187,20 +215,31 @@ export default function Plans() {
 
                     <div>
                       {subscription.planName === plan.name ? (
-                        <Badge tone="success">Current Plan</Badge>
+                        <div>
+                          <Badge tone="success">Current Plan</Badge>
+                          {plan.name !== "free" && (
+                            <div style={{ marginTop: "1rem" }}>
+                              <Button
+                                onClick={() => handleCancelAction(plan.name)}
+                                tone="critical"
+                                size="large"
+                                fullWidth
+                              >
+                                Cancel Plan
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       ) : (
-                        <Form method="post">
-                          <input type="hidden" name="plan" value={plan.name} />
-                          <Button
-                            submit
-                            variant={plan.recommended ? "primary" : "secondary"}
-                            size="large"
-                            fullWidth
-                            disabled={plan.name === "free"}
-                          >
-                            {plan.name === "free" ? "Free Plan" : `Get ${plan.displayName}`}
-                          </Button>
-                        </Form>
+                        <Button
+                          onClick={() => handlePurchaseAction(plan.name)}
+                          variant={plan.recommended ? "primary" : "secondary"}
+                          size="large"
+                          fullWidth
+                          disabled={plan.name === "free"}
+                        >
+                          {plan.name === "free" ? "Free Plan" : `Get ${plan.displayName}`}
+                        </Button>
                       )}
                     </div>
                   </div>
