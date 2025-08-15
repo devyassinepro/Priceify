@@ -19,38 +19,104 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       return redirect("/app?billing_error=no_charge_id");
     }
 
-    // Récupérer les détails de la charge depuis Shopify
-    const response = await admin.graphql(`
-      query getAppRecurringApplicationCharge($id: ID!) {
-        appRecurringApplicationCharge(id: $id) {
-          id
-          name
-          price {
-            amount
-            currencyCode
+    // ✅ SOLUTION: Déterminer le type de charge et utiliser la bonne requête
+    let charge = null;
+    let isSubscription = false;
+
+    // Essayer d'abord AppSubscription (nouveau système)
+    try {
+      const subscriptionResponse = await admin.graphql(`
+        query getAppSubscription($id: ID!) {
+          appSubscription(id: $id) {
+            id
+            name
+            status
+            currentPeriodEnd
+            lineItems {
+              plan {
+                pricingDetails {
+                  ... on AppRecurringPricing {
+                    price {
+                      amount
+                      currencyCode
+                    }
+                    interval
+                  }
+                }
+              }
+            }
           }
-          status
-          createdAt
-          activatedOn
         }
+      `, {
+        variables: { id: chargeId }
+      });
+
+      const subscriptionResult = await subscriptionResponse.json();
+      charge = subscriptionResult.data?.appSubscription;
+      
+      if (charge) {
+        console.log(`📊 Found AppSubscription:`, JSON.stringify(charge, null, 2));
+        isSubscription = true;
       }
-    `, {
-      variables: { id: chargeId }
-    });
+    } catch (error) {
+      console.log(`ℹ️ Not an AppSubscription, trying AppRecurringApplicationCharge...`);
+    }
 
-    const result = await response.json();
-    const charge = result.data?.appRecurringApplicationCharge;
+    // Si pas trouvé comme AppSubscription, essayer AppRecurringApplicationCharge
+    if (!charge) {
+      try {
+        const chargeResponse = await admin.graphql(`
+          query getAppRecurringApplicationCharge($id: ID!) {
+            appRecurringApplicationCharge(id: $id) {
+              id
+              name
+              price {
+                amount
+                currencyCode
+              }
+              status
+              createdAt
+              activatedOn
+            }
+          }
+        `, {
+          variables: { id: chargeId }
+        });
 
-    console.log(`📊 Charge details:`, JSON.stringify(charge, null, 2));
+        const chargeResult = await chargeResponse.json();
+        charge = chargeResult.data?.appRecurringApplicationCharge;
+        
+        if (charge) {
+          console.log(`📊 Found AppRecurringApplicationCharge:`, JSON.stringify(charge, null, 2));
+          isSubscription = false;
+        }
+      } catch (error) {
+        console.log(`❌ Error fetching charge:`, error);
+      }
+    }
 
     if (!charge) {
-      console.log("❌ Charge not found");
+      console.log("❌ Charge not found in either system");
       return redirect("/app?billing_error=charge_not_found");
     }
 
-    if (charge.status === "active") {
+    // Déterminer le statut selon le type
+    const status = charge.status;
+    console.log(`📋 Charge status: ${status}`);
+
+    if (status === "ACTIVE" || status === "active") {
       // Charge acceptée - mettre à jour l'abonnement local
-      const amount = parseFloat(charge.price.amount);
+      let amount;
+      
+      if (isSubscription) {
+        // AppSubscription
+        amount = parseFloat(charge.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
+      } else {
+        // AppRecurringApplicationCharge
+        amount = parseFloat(charge.price?.amount || "0");
+      }
+      
+      console.log(`💰 Detected amount: ${amount}`);
       
       // Mapper le montant au plan correspondant
       let detectedPlan = "free";
@@ -68,6 +134,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         status: "active",
         usageLimit: PLANS[detectedPlan as keyof typeof PLANS].usageLimit,
         subscriptionId: chargeId,
+        currentPeriodEnd: isSubscription && charge.currentPeriodEnd 
+          ? new Date(charge.currentPeriodEnd) 
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 jours par défaut
       });
 
       // Construire l'URL de redirection vers l'app embedded
@@ -77,15 +146,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       console.log(`🔗 Redirecting to: ${redirectUrl}`);
       return redirect(redirectUrl);
 
-    } else if (charge.status === "declined") {
+    } else if (status === "DECLINED" || status === "declined") {
       console.log("❌ Charge declined by user");
       const host = Buffer.from(`${shop}/admin`).toString('base64');
       return redirect(`/app?host=${host}&shop=${shop}&billing_error=declined`);
 
-    } else {
-      console.log(`⏳ Charge status: ${charge.status}`);
+    } else if (status === "PENDING" || status === "pending") {
+      console.log(`⏳ Charge status: ${status}`);
       const host = Buffer.from(`${shop}/admin`).toString('base64');
       return redirect(`/app?host=${host}&shop=${shop}&billing_error=pending`);
+
+    } else {
+      console.log(`❓ Unknown charge status: ${status}`);
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      return redirect(`/app?host=${host}&shop=${shop}&billing_error=unknown_status`);
     }
 
   } catch (error: any) {
