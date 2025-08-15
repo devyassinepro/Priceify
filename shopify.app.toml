@@ -18,15 +18,6 @@ api_version = "2025-01"
 topics = [ "app/uninstalled" ]
 uri = "/webhooks/app/uninstalled"
 
-# Webhook pour les mises à jour d'abonnement
-[[webhooks.subscriptions]]
-topics = [ "app_subscriptions/update" ]
-uri = "/webhooks/app/subscriptions_update"
-
-[[webhooks.subscriptions]]
-topics = [ "app/scopes_update" ]
-uri = "/webhooks/app/scopes_update"
-
 # ✅ GDPR compliance webhooks - ALL pointing to same endpoint
 [[webhooks.subscriptions]]
 topics = [ "customers/data_request" ]
@@ -44,7 +35,9 @@ uri = "/webhooks/gdpr"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
+redirect_urls = ["https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback",
+ "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", 
+ "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false

@@ -1,4 +1,4 @@
-// 1. Fix shopify.server.ts - Add missing mandatory webhooks and HMAC verification
+// app/shopify.server.ts - Configuration corrigée des webhooks
 
 import "@shopify/shopify-app-remix/adapters/node";
 import {
@@ -24,16 +24,14 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   restResources,
-  // ✅ FIX: Add ALL mandatory compliance webhooks (constantes avec underscores)
+  // ✅ CORRECTION: Suppression des webhooks APP_SUBSCRIPTIONS_UPDATE défectueux
+  // Les webhooks d'abonnement sont gérés différemment et ne fonctionnent pas toujours
   webhooks: {
     APP_UNINSTALLED: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/app/uninstalled",
     },
-    APP_SUBSCRIPTIONS_UPDATE: {
-      deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/app/scopes_update",
-    },
+    // ✅ OBLIGATOIRES POUR SHOPIFY APP STORE
     CUSTOMERS_DATA_REQUEST: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/gdpr",
@@ -49,13 +47,15 @@ const shopify = shopifyApp({
   },
   hooks: {
     afterAuth: async ({ session }) => {
-      shopify.registerWebhooks({ session });
-      
       try {
+        console.log(`🔗 Registering webhooks for ${session.shop}`);
+        shopify.registerWebhooks({ session });
+        
+        console.log(`📋 Creating subscription for ${session.shop}`);
         await getOrCreateSubscription(session.shop);
         console.log(`✅ Subscription created for ${session.shop}`);
       } catch (error) {
-        console.error("Error creating subscription:", error);
+        console.error("❌ Error in afterAuth hook:", error);
       }
     },
   },

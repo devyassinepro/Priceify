@@ -1,4 +1,3 @@
-// app/routes/app.billing.tsx
 import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";
@@ -61,20 +60,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
 
-    // Get the correct app URL from the request headers or environment
-    const protocol = request.headers.get('x-forwarded-proto') || 'https';
-    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '');
-    const baseUrl = `${protocol}://${host}`;
-    
-    console.log(`📍 Using base URL: ${baseUrl}`);
-    
-    // Create Shopify subscription using App Subscriptions API
+    // ✅ ALTERNATIVE: Utiliser AppRecurringApplicationCharge (plus compatible)
     const response = await admin.graphql(`
-      mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean!, $lineItems: [AppSubscriptionLineItemInput!]!) {
-        appSubscriptionCreate(name: $name, returnUrl: $returnUrl, test: $test, lineItems: $lineItems) {
-          appSubscription {
+      mutation appRecurringApplicationChargeCreate($name: String!, $price: MoneyInput!, $returnUrl: URL!, $test: Boolean!) {
+        appRecurringApplicationChargeCreate(name: $name, price: $price, returnUrl: $returnUrl, test: $test) {
+          appRecurringApplicationCharge {
             id
             name
+            price {
+              amount
+              currencyCode
+            }
             status
           }
           confirmationUrl
@@ -86,50 +82,44 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     `, {
       variables: {
-        name: `${plan.displayName} Plan`,
-        returnUrl: `${baseUrl}/app?billing_completed=1&sync_needed=1&plan=${selectedPlan}`,
-        test: true, // Toujours utiliser le mode test pour éviter les charges réelles pendant le développement
-        lineItems: [
-          {
-            plan: {
-              appRecurringPricingDetails: {
-                price: { amount: plan.price, currencyCode: "USD" },
-                interval: "EVERY_30_DAYS"
-              }
-            }
-          }
-        ]
+        name: `${plan.displayName} Plan - $${plan.price}/month`,
+        price: {
+          amount: plan.price,
+          currencyCode: "USD"
+        },
+        returnUrl: `https://pricebooster-app-hkfq8.ondigitalocean.app/app?billing_completed=1&sync_needed=1&plan=${selectedPlan}`,
+        test: true // Mode test pour éviter les vraies charges
       }
     });
 
     const result = await response.json();
-    console.log('GraphQL Response:', JSON.stringify(result, null, 2));
+    console.log('📊 GraphQL Response:', JSON.stringify(result, null, 2));
 
-    if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
-      const errors = result.data.appSubscriptionCreate.userErrors;
-      console.error('Subscription creation errors:', errors);
+    if (result.data?.appRecurringApplicationChargeCreate?.userErrors?.length > 0) {
+      const errors = result.data.appRecurringApplicationChargeCreate.userErrors;
+      console.error('❌ Charge creation errors:', errors);
       return json<ActionResult>({
         error: `Billing error: ${errors.map((e: any) => e.message).join(', ')}`
       });
     }
 
-    const confirmationUrl = result.data?.appSubscriptionCreate?.confirmationUrl;
-    const subscriptionId = result.data?.appSubscriptionCreate?.appSubscription?.id;
+    const confirmationUrl = result.data?.appRecurringApplicationChargeCreate?.confirmationUrl;
+    const chargeId = result.data?.appRecurringApplicationChargeCreate?.appRecurringApplicationCharge?.id;
 
     if (!confirmationUrl) {
       return json<ActionResult>({
-        error: "Failed to create subscription - no confirmation URL"
+        error: "Failed to create charge - no confirmation URL"
       });
     }
 
     console.log(`✅ Billing charge created successfully`);
     console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
-    console.log(`🆔 Subscription ID: ${subscriptionId}`);
+    console.log(`🆔 Charge ID: ${chargeId}`);
 
-    // Store the subscription ID for future reference
-    if (subscriptionId) {
+    // Store the charge ID for future reference
+    if (chargeId) {
       await updateSubscription(session.shop, {
-        subscriptionId: subscriptionId,
+        subscriptionId: chargeId,
       });
     }
 
@@ -141,12 +131,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   } catch (error: any) {
     console.error(`💥 Billing creation failed:`, error);
     return json<ActionResult>({
-      error: `Failed to create subscription: ${error.message}`
+      error: `Failed to create charge: ${error.message}`
     });
   }
 };
 
-export default function Billing() {
+export default function BillingAlternative() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionResult>();
   const submit = useSubmit();
@@ -156,7 +146,7 @@ export default function Billing() {
   // Redirect to Shopify billing confirmation page
   React.useEffect(() => {
     if (actionData?.confirmationUrl) {
-      console.log('Redirecting to:', actionData.confirmationUrl);
+      console.log('🔗 Redirecting to:', actionData.confirmationUrl);
       // Use window.top to ensure we break out of iframe if embedded
       if (window.top) {
         window.top.location.href = actionData.confirmationUrl;
@@ -182,12 +172,12 @@ export default function Billing() {
   };
 
   return (
-    <Page title="Choose Your Plan" backAction={{ content: "← Dashboard", url: "/app" }}>
+    <Page title="Choose Your Plan (Alternative)" backAction={{ content: "← Dashboard", url: "/app" }}>
       <Layout>
         {/* Action feedback banners */}
         {actionData?.error && (
           <Layout.Section>
-            <Banner title="Subscription Error" tone="critical">
+            <Banner title="Billing Error" tone="critical">
               <Text as="p">{actionData.error}</Text>
             </Banner>
           </Layout.Section>
@@ -208,6 +198,16 @@ export default function Billing() {
             </Banner>
           </Layout.Section>
         )}
+
+        {/* Information sur l'alternative */}
+        <Layout.Section>
+          <Banner title="ℹ️ Alternative Billing Method" tone="info">
+            <Text as="p">
+              Using AppRecurringApplicationCharge instead of AppSubscriptions for better compatibility.
+              This method works more reliably during development and testing phases.
+            </Text>
+          </Banner>
+        </Layout.Section>
 
         {/* Current subscription info */}
         <Layout.Section>
@@ -310,7 +310,7 @@ export default function Billing() {
                           >
                             {plan.name === "free" 
                               ? (canDowngrade ? "Downgrade to Free" : "Free Plan") 
-                              : `Upgrade to ${plan.displayName}`
+                              : `Try ${plan.displayName}`
                             }
                           </Button>
                         )}
@@ -331,16 +331,16 @@ export default function Billing() {
                 <Text as="h3" variant="headingMd">💳 Billing Information</Text>
                 <div style={{ display: "grid", gap: "0.5rem" }}>
                   <Text as="p" variant="bodySm">
-                    • Billing is handled securely through Shopify
+                    • Using AppRecurringApplicationCharge for maximum compatibility
+                  </Text>
+                  <Text as="p" variant="bodySm">
+                    • Test mode enabled - no real charges will occur
                   </Text>
                   <Text as="p" variant="bodySm">
                     • You can upgrade, downgrade, or cancel anytime
                   </Text>
                   <Text as="p" variant="bodySm">
-                    • Usage quotas reset on your billing anniversary
-                  </Text>
-                  <Text as="p" variant="bodySm">
-                    • {process.env.NODE_ENV !== "production" ? "Test mode" : "Live billing"} - charges will {process.env.NODE_ENV !== "production" ? "not" : ""} appear on your Shopify bill
+                    • Usage quotas reset monthly
                   </Text>
                 </div>
               </BlockStack>
