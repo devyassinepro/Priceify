@@ -68,6 +68,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     
     console.log(`📍 Using base URL: ${baseUrl}`);
     
+    // ✅ CORRECTION: URL de retour vers la route billing-return
+    const returnUrl = `${baseUrl}/billing-return?shop=${session.shop}`;
+    console.log(`🔗 Return URL: ${returnUrl}`);
+    
     // Create Shopify subscription using App Subscriptions API
     const response = await admin.graphql(`
       mutation AppSubscriptionCreate($name: String!, $returnUrl: URL!, $test: Boolean!, $lineItems: [AppSubscriptionLineItemInput!]!) {
@@ -87,7 +91,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     `, {
       variables: {
         name: `${plan.displayName} Plan`,
-        returnUrl: `${baseUrl}/app?billing_completed=1&sync_needed=1&plan=${selectedPlan}`,
+        returnUrl,
         test: true, // Toujours utiliser le mode test pour éviter les charges réelles pendant le développement
         lineItems: [
           {

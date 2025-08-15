@@ -34,36 +34,77 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // ✅ DÉTECTION BILLING COMPLETED
   const billingCompleted = url.searchParams.get("billing_completed");
+  const billingError = url.searchParams.get("billing_error");
+  const plan = url.searchParams.get("plan");
   const syncNeeded = url.searchParams.get("sync_needed");
   const chargeId = url.searchParams.get("charge_id");
   
   console.log(`📋 Billing params detected:`);
   console.log(`- billing_completed: ${billingCompleted}`);
+  console.log(`- billing_error: ${billingError}`);
   console.log(`- sync_needed: ${syncNeeded}`);
-  console.log(`- charge_id: ${chargeId}`);
+  console.log(`- plan: ${plan}`);
+  console.log(`- charge_id: ${chargeId || 'Not provided'}`);
   
+  // Redirection automatique vers sync si nécessaire
   if (billingCompleted === "1" && syncNeeded === "1") {
     console.log(`🔄 Billing completed detected, triggering automatic sync...`);
-    console.log(`💳 Charge ID: ${chargeId || 'Not provided'}`);
     return redirect("/app/sync-subscription");
+  }
+  
+  // Gérer les erreurs de billing
+  let billingMessage = null;
+  let billingStatus = null;
+  
+  if (billingCompleted === "1") {
+    billingStatus = "success";
+    billingMessage = plan 
+      ? `Your subscription has been successfully activated! You're now on the ${plan} plan.`
+      : "Your subscription has been successfully activated!";
+  } else if (billingError) {
+    billingStatus = "error";
+    switch (billingError) {
+      case "declined":
+        billingMessage = "Payment was declined. You can try again or choose a different payment method.";
+        break;
+      case "processing_error":
+        billingMessage = "There was an error processing your payment. Please try again.";
+        break;
+      case "charge_not_found":
+        billingMessage = "Payment information not found. Please try again.";
+        break;
+      case "no_charge_id":
+        billingMessage = "Invalid payment information. Please try again.";
+        break;
+      case "pending":
+        billingMessage = "Your payment is being processed. Please wait a moment and refresh the page.";
+        break;
+      case "unknown":
+        billingMessage = "An unexpected error occurred. Please contact support if this persists.";
+        break;
+      default:
+        billingMessage = "There was an issue with your payment. Please try again.";
+    }
   }
   
   // Récupérer les données d'abonnement
   const subscriptionStats = await getSubscriptionStats(session.shop);
-  const plan = getPlan(subscriptionStats.planName);
+  const planData = getPlan(subscriptionStats.planName);
 
   // Paramètres de synchronisation
   const syncStatus = url.searchParams.get("sync");
-  const syncPlan = url.searchParams.get("plan");
+  const syncPlan = url.searchParams.get("sync_plan");
   const syncMessage = url.searchParams.get("message");
   
   return json({
     shop: session.shop,
     subscription: subscriptionStats,
-    plan,
+    plan: planData,
     usagePercentage: (subscriptionStats.usageCount / subscriptionStats.usageLimit) * 100,
     remainingProducts: subscriptionStats.usageLimit - subscriptionStats.usageCount,
     uniqueProductCount: subscriptionStats.uniqueProductCount || 0,
+    billingStatus,
+    billingMessage,
     syncStatus,
     syncPlan,
     syncMessage,
@@ -78,6 +119,8 @@ export default function Index() {
     usagePercentage, 
     remainingProducts, 
     uniqueProductCount,
+    billingStatus,
+    billingMessage,
     syncStatus,
     syncPlan,
     syncMessage,
@@ -89,24 +132,62 @@ export default function Index() {
   const isNearLimit = usagePercentage > 80;
   const hasReachedLimit = usagePercentage >= 100;
 
-  // Nettoyer les paramètres de sync après 5 secondes
+  // Nettoyer les paramètres après affichage
   useEffect(() => {
-    if (syncStatus) {
+    if (billingStatus || syncStatus) {
       const timer = setTimeout(() => {
         const params = new URLSearchParams(searchParams);
-        params.delete("sync");
+        // Nettoyer les paramètres de billing
+        params.delete("billing_completed");
+        params.delete("billing_error");
         params.delete("plan");
+        params.delete("charge_id");
+        // Nettoyer les paramètres de sync
+        params.delete("sync");
+        params.delete("sync_plan");
         params.delete("message");
+        params.delete("sync_needed");
+        // Nettoyer les paramètres embedded
+        params.delete("host");
+        params.delete("shop");
+        params.delete("hmac");
+        params.delete("embedded");
+        params.delete("id_token");
+        params.delete("locale");
+        params.delete("session");
+        params.delete("timestamp");
         setSearchParams(params, { replace: true });
       }, 5000);
       
       return () => clearTimeout(timer);
     }
-  }, [syncStatus, searchParams, setSearchParams]);
+  }, [billingStatus, syncStatus, searchParams, setSearchParams]);
 
   return (
     <Page title="Dashboard" subtitle={`Dynamic Pricing for ${shop}`}>
       <Layout>
+        {/* Bannières de billing */}
+        {billingStatus === "success" && billingMessage && (
+          <Layout.Section>
+            <Banner title="🎉 Payment Successful!" tone="success">
+              <Text as="p">{billingMessage}</Text>
+            </Banner>
+          </Layout.Section>
+        )}
+        
+        {billingStatus === "error" && billingMessage && (
+          <Layout.Section>
+            <Banner title="⚠️ Payment Issue" tone="critical">
+              <Text as="p">{billingMessage}</Text>
+              <div style={{ marginTop: "1rem" }}>
+                <Link to="/app/billing">
+                  <Button variant="primary">Try Again</Button>
+                </Link>
+              </div>
+            </Banner>
+          </Layout.Section>
+        )}
+
         {/* Bannières de synchronisation */}
         {syncStatus === "success" && (
           <Layout.Section>
@@ -141,17 +222,17 @@ export default function Index() {
         )}
 
         {/* Avertissements d'utilisation */}
-        {isNearLimit && !syncStatus && (
+        {isNearLimit && !billingStatus && !syncStatus && (
           <Layout.Section>
             <Banner 
               title={hasReachedLimit ? "Product Limit Reached" : "Approaching Product Limit"}
               tone={hasReachedLimit ? "critical" : "warning"}
               action={hasReachedLimit ? {
                 content: "View Pricing Plans",
-                url: "/app/plans"
+                url: "/app/billing"
               } : {
                 content: "View Pricing Plans",
-                url: "/app/plans"
+                url: "/app/billing"
               }}
             >
               <Text as="p">
@@ -268,7 +349,7 @@ export default function Index() {
                       </Link>
 
                       {plan.name === "free" && (
-                        <Link to="/app/plans">
+                        <Link to="/app/billing">
                           <Button size="large" tone="success">
                             🚀 View Pricing Plans
                           </Button>
@@ -319,8 +400,42 @@ export default function Index() {
           </Grid>
         </Layout.Section>
 
+        {/* Message de bienvenue pour nouveaux utilisateurs */}
+        {isNewUser && !billingStatus && !syncStatus && (
+          <Layout.Section>
+            <Card>
+              <div style={{ 
+                padding: "2rem", 
+                textAlign: "center",
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                color: "white",
+                borderRadius: "8px"
+              }}>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingLg" tone="inherit">
+                    🎉 Welcome to PriceBoost!
+                  </Text>
+                  <Text as="p" tone="inherit">
+                    You're all set up with the free plan. Start by modifying some product prices to see how it works.
+                  </Text>
+                  <div>
+                    <Link to="/app/pricing">
+                      <Button size="large" tone="success">
+                        🚀 Start Modifying Prices
+                      </Button>
+                    </Link>
+                  </div>
+                  <Text as="p" variant="bodySm" tone="inherit">
+                    ✨ You can modify up to {subscription.usageLimit} unique products per month on the free plan.
+                  </Text>
+                </BlockStack>
+              </div>
+            </Card>
+          </Layout.Section>
+        )}
+
         {/* CTA d'upgrade pour plan gratuit */}
-        {plan.name === "free" && !hasReachedLimit && (
+        {plan.name === "free" && !hasReachedLimit && !isNewUser && !billingStatus && !syncStatus && (
           <Layout.Section>
             <Card>
               <div style={{ 
@@ -338,7 +453,7 @@ export default function Index() {
                     Upgrade to Standard (500 products) or Pro (unlimited products) to unlock your pricing potential.
                   </Text>
                   <div>
-                    <Link to="/app/plans">
+                    <Link to="/app/billing">
                       <Button size="large" tone="success">
                         🚀 View Pricing Plans
                       </Button>
@@ -347,6 +462,66 @@ export default function Index() {
                   <Text as="p" variant="bodySm" tone="inherit">
                     ✨ After upgrading, return here and your new plan will be automatically activated!
                   </Text>
+                </BlockStack>
+              </div>
+            </Card>
+          </Layout.Section>
+        )}
+
+        {/* Informations sur l'utilisation avancée */}
+        {!isNewUser && subscription.usageCount > 5 && (
+          <Layout.Section>
+            <Card>
+              <div style={{ padding: "1.5rem" }}>
+                <BlockStack gap="400">
+                  <Text as="h3" variant="headingMd">📊 Your Usage Insights</Text>
+                  
+                  <div style={{ 
+                    display: "grid", 
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", 
+                    gap: "1rem" 
+                  }}>
+                    <div>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">
+                        {((subscription.usageCount / subscription.usageLimit) * 100).toFixed(1)}%
+                      </Text>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        of monthly quota used
+                      </Text>
+                    </div>
+                    
+                    <div>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">
+                        {subscription.totalPriceChanges ? Math.round(subscription.totalPriceChanges / subscription.usageCount) : 0}
+                      </Text>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        avg. changes per product
+                      </Text>
+                    </div>
+                    
+                    <div>
+                      <Text as="p" variant="bodyMd" fontWeight="semibold">
+                        {plan.displayName}
+                      </Text>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        current plan
+                      </Text>
+                    </div>
+                  </div>
+                  
+                  {plan.name === "free" && subscription.usageCount > 15 && (
+                    <div style={{ 
+                      padding: "1rem", 
+                      backgroundColor: "#f6f6f7", 
+                      borderRadius: "8px",
+                      border: "1px solid #e1e3e5"
+                    }}>
+                      <Text as="p" variant="bodySm">
+                        💡 <strong>Pro Tip:</strong> You're using your free plan efficiently! 
+                        Consider upgrading to unlock more products and advanced features.
+                      </Text>
+                    </div>
+                  )}
                 </BlockStack>
               </div>
             </Card>

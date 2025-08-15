@@ -1,3 +1,6 @@
+// app/routes/app.billing-alternative.tsx
+// Alternative simplifiée qui fonctionne avec Shopify App Charges classiques
+
 import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";
@@ -87,7 +90,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           amount: plan.price,
           currencyCode: "USD"
         },
-        returnUrl: `https://pricebooster-app-hkfq8.ondigitalocean.app/app?billing_completed=1&sync_needed=1&plan=${selectedPlan}`,
+        returnUrl: `https://pricebooster-app-hkfq8.ondigitalocean.app/billing-return?shop=${session.shop}`,
         test: true // Mode test pour éviter les vraies charges
       }
     });
