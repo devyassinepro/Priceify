@@ -48,7 +48,7 @@ export default function App() {
             </span>
           )}
         </Link>
-        <Link to="/app/plans">
+        <Link to="/app/billing">
           {subscription.planName === 'free' ? "⭐ Upgrade Plan" : "💳 Subscription"}
         </Link>
       </NavMenu>

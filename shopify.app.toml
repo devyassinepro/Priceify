@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
 handle = "pricefy-1"
-application_url = "https://sorry-riding-realized-bangladesh.trycloudflare.com"
+application_url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
 embedded = true
 
 [build]
@@ -17,6 +17,11 @@ api_version = "2025-01"
 [[webhooks.subscriptions]]
 topics = [ "app/uninstalled" ]
 uri = "/webhooks/app/uninstalled"
+
+# Webhook pour les mises à jour d'abonnement
+[[webhooks.subscriptions]]
+topics = [ "app_subscriptions/update" ]
+uri = "/webhooks/app/subscriptions_update"
 
 [[webhooks.subscriptions]]
 topics = [ "app/scopes_update" ]
@@ -39,7 +44,7 @@ uri = "/webhooks/gdpr"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://sorry-riding-realized-bangladesh.trycloudflare.com/auth/callback", "https://sorry-riding-realized-bangladesh.trycloudflare.com/auth/shopify/callback", "https://sorry-riding-realized-bangladesh.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
 
 [pos]
 embedded = false
