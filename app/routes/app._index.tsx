@@ -23,21 +23,34 @@ import {
 } from "@shopify/polaris-icons";
 import { getSubscriptionStats } from "../models/subscription.server";
 import { getPlan, formatPriceDisplay } from "../lib/plans";
+import { smartAutoSync } from "../lib/auto-sync.server";
 import { useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   
   const url = new URL(request.url);
   console.log(`🏠 App index loaded for ${session.shop}`);
   console.log(`🔗 Full URL: ${url.toString()}`);
 
-  // ✅ DÉTECTION BILLING COMPLETED
+  // ✅ AUTO-SYNC AUTOMATIQUE
+  let autoSyncResult = null;
+  try {
+    autoSyncResult = await smartAutoSync(admin, session.shop);
+    if (autoSyncResult?.success) {
+      console.log(`✅ Auto-sync successful: ${autoSyncResult.message}`);
+    }
+  } catch (error) {
+    console.error("Auto-sync error:", error);
+  }
+
+  // ✅ DÉTECTION BILLING COMPLETED ET TRIGGER SYNC
   const billingCompleted = url.searchParams.get("billing_completed");
   const billingError = url.searchParams.get("billing_error");
   const plan = url.searchParams.get("plan");
   const syncNeeded = url.searchParams.get("sync_needed");
   const chargeId = url.searchParams.get("charge_id");
+  const triggerSync = url.searchParams.get("trigger_sync");
   
   console.log(`📋 Billing params detected:`);
   console.log(`- billing_completed: ${billingCompleted}`);
@@ -45,11 +58,23 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log(`- sync_needed: ${syncNeeded}`);
   console.log(`- plan: ${plan}`);
   console.log(`- charge_id: ${chargeId || 'Not provided'}`);
+  console.log(`- trigger_sync: ${triggerSync}`);
   
-  // Redirection automatique vers sync si nécessaire
-  if (billingCompleted === "1" && syncNeeded === "1") {
-    console.log(`🔄 Billing completed detected, triggering automatic sync...`);
-    return redirect("/app/sync-subscription");
+  // ✅ FORCE SYNC si demandé (venant de billing-return)
+  if (triggerSync === "1" || (billingCompleted === "1" && syncNeeded === "1")) {
+    console.log(`🔄 Triggered sync detected, forcing auto-sync...`);
+    try {
+      const { autoSyncSubscription } = await import("../lib/auto-sync.server");
+      const forcedSyncResult = await autoSyncSubscription(admin, session.shop);
+      if (forcedSyncResult?.success) {
+        console.log(`✅ Forced sync successful: ${forcedSyncResult.message}`);
+        autoSyncResult = forcedSyncResult;
+      } else {
+        console.log(`❌ Forced sync failed: ${forcedSyncResult?.error}`);
+      }
+    } catch (error) {
+      console.error("Forced sync failed:", error);
+    }
   }
   
   // Gérer les erreurs de billing
@@ -58,9 +83,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   if (billingCompleted === "1") {
     billingStatus = "success";
-    billingMessage = plan 
-      ? `Your subscription has been successfully activated! You're now on the ${plan} plan.`
-      : "Your subscription has been successfully activated!";
+    if (autoSyncResult?.success) {
+      billingMessage = `Payment successful! You're now on the ${autoSyncResult.syncedPlan} plan.`;
+    } else {
+      billingMessage = plan 
+        ? `Your subscription has been successfully activated! You're now on the ${plan} plan.`
+        : "Your subscription has been successfully activated!";
+    }
   } else if (billingError) {
     billingStatus = "error";
     switch (billingError) {
@@ -108,6 +137,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     syncStatus,
     syncPlan,
     syncMessage,
+    autoSyncResult, // Passer le résultat de l'auto-sync
   });
 };
 
@@ -124,6 +154,7 @@ export default function Index() {
     syncStatus,
     syncPlan,
     syncMessage,
+    autoSyncResult,
   } = useLoaderData<typeof loader>();
   
   const [searchParams, setSearchParams] = useSearchParams();
@@ -134,7 +165,7 @@ export default function Index() {
 
   // Nettoyer les paramètres après affichage
   useEffect(() => {
-    if (billingStatus || syncStatus) {
+    if (billingStatus || syncStatus || autoSyncResult) {
       const timer = setTimeout(() => {
         const params = new URLSearchParams(searchParams);
         // Nettoyer les paramètres de billing
@@ -161,16 +192,30 @@ export default function Index() {
       
       return () => clearTimeout(timer);
     }
-  }, [billingStatus, syncStatus, searchParams, setSearchParams]);
+  }, [billingStatus, syncStatus, autoSyncResult, searchParams, setSearchParams]);
 
   return (
     <Page title="Dashboard" subtitle={`Dynamic Pricing for ${shop}`}>
       <Layout>
+        {/* Auto-sync result banner */}
+        {autoSyncResult?.success && !billingStatus && (
+          <Layout.Section>
+            <Banner title="🔄 Subscription Auto-Synced!" tone="success">
+              <Text as="p">{autoSyncResult.message}</Text>
+            </Banner>
+          </Layout.Section>
+        )}
+
         {/* Bannières de billing */}
         {billingStatus === "success" && billingMessage && (
           <Layout.Section>
             <Banner title="🎉 Payment Successful!" tone="success">
               <Text as="p">{billingMessage}</Text>
+              {autoSyncResult?.success && (
+                <Text as="p" variant="bodySm" tone="subdued">
+                  ✅ Your subscription has been automatically synchronized.
+                </Text>
+              )}
             </Banner>
           </Layout.Section>
         )}

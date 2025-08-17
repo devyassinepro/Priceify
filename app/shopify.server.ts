@@ -1,4 +1,4 @@
-// app/shopify.server.ts - Configuration corrigée des webhooks
+// app/shopify.server.ts - Avec auto-sync intégré
 
 import "@shopify/shopify-app-remix/adapters/node";
 import {
@@ -24,14 +24,11 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   restResources,
-  // ✅ CORRECTION: Suppression des webhooks APP_SUBSCRIPTIONS_UPDATE défectueux
-  // Les webhooks d'abonnement sont gérés différemment et ne fonctionnent pas toujours
   webhooks: {
     APP_UNINSTALLED: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/app/uninstalled",
     },
-    // ✅ OBLIGATOIRES POUR SHOPIFY APP STORE
     CUSTOMERS_DATA_REQUEST: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/gdpr",
@@ -46,16 +43,39 @@ const shopify = shopifyApp({
     },
   },
   hooks: {
-    afterAuth: async ({ session }) => {
+    afterAuth: async ({ session, admin }) => {
       try {
-        console.log(`🔗 Registering webhooks for ${session.shop}`);
+        console.log(`🔗 Processing afterAuth for ${session.shop}`);
+        
+        // 1. Enregistrer les webhooks
         shopify.registerWebhooks({ session });
         
+        // 2. Créer l'abonnement local
         console.log(`📋 Creating subscription for ${session.shop}`);
         await getOrCreateSubscription(session.shop);
-        console.log(`✅ Subscription created for ${session.shop}`);
+        
+        // 3. ✅ AUTO-SYNC AUTOMATIQUE lors de l'installation/réinstallation
+        console.log(`🔄 Running auto-sync for ${session.shop}`);
+        
+        try {
+          const { autoSyncSubscription } = await import("./lib/auto-sync.server");
+          const syncResult = await autoSyncSubscription(admin, session.shop);
+          
+          if (syncResult.success) {
+            console.log(`✅ Auto-sync successful in afterAuth: ${syncResult.message}`);
+          } else {
+            console.log(`ℹ️ Auto-sync in afterAuth: ${syncResult.message || syncResult.error}`);
+          }
+        } catch (syncError) {
+          console.error("❌ Auto-sync error in afterAuth:", syncError);
+          // Ne pas faire échouer l'installation pour ça
+        }
+        
+        console.log(`✅ afterAuth completed for ${session.shop}`);
+        
       } catch (error) {
         console.error("❌ Error in afterAuth hook:", error);
+        // Ne pas faire échouer l'installation
       }
     },
   },
