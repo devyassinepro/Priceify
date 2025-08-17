@@ -61,14 +61,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
 
-    // Get the correct app URL from the request headers or environment
+    // ✅ SOLUTION: URL de retour améliorée avec tous les paramètres nécessaires
     const protocol = request.headers.get('x-forwarded-proto') || 'https';
     const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '');
     const baseUrl = `${protocol}://${host}`;
     
-    console.log(`📍 Using base URL: ${baseUrl}`);
-    
-    // ✅ CORRECTION: URL de retour vers la route billing-return
+    // ✅ SOLUTION: URL de retour qui inclut le charge_id automatiquement
     const returnUrl = `${baseUrl}/billing-return?shop=${session.shop}`;
     console.log(`🔗 Return URL: ${returnUrl}`);
     
@@ -92,7 +90,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       variables: {
         name: `${plan.displayName} Plan`,
         returnUrl,
-        test: true, // Toujours utiliser le mode test pour éviter les charges réelles pendant le développement
+        test: true, // Changez en false pour la production
         lineItems: [
           {
             plan: {
@@ -130,10 +128,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
     console.log(`🆔 Subscription ID: ${subscriptionId}`);
 
-    // Store the subscription ID for future reference
+    // ✅ SOLUTION: Stocker l'ID et le plan sélectionné pour référence future
     if (subscriptionId) {
       await updateSubscription(session.shop, {
         subscriptionId: subscriptionId,
+        // Nota: ne pas changer le plan ici, attendre la confirmation de paiement
       });
     }
 

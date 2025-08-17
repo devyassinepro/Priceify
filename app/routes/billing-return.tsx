@@ -1,4 +1,4 @@
-// app/routes/billing-return.tsx
+// app/routes/billing-return.tsx - Version améliorée avec sync forcé
 import { LoaderFunctionArgs, redirect } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { updateSubscription } from "../models/subscription.server";
@@ -19,9 +19,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       return redirect("/app?billing_error=no_charge_id");
     }
 
-    // ✅ SOLUTION: Déterminer le type de charge et utiliser la bonne requête
+    // ✅ SOLUTION AMÉLIORÉE: Force sync après paiement
     let charge = null;
     let isSubscription = false;
+    let detectedPlan = "free";
 
     // Essayer d'abord AppSubscription (nouveau système)
     try {
@@ -57,6 +58,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       if (charge) {
         console.log(`📊 Found AppSubscription:`, JSON.stringify(charge, null, 2));
         isSubscription = true;
+        
+        // Extraire le montant pour AppSubscription
+        const amount = parseFloat(charge.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
+        console.log(`💰 AppSubscription amount: ${amount}`);
+        
+        // Mapper au plan correspondant
+        for (const [planKey, planData] of Object.entries(PLANS)) {
+          if (Math.abs(planData.price - amount) < 0.02) {
+            detectedPlan = planKey;
+            break;
+          }
+        }
       }
     } catch (error) {
       console.log(`ℹ️ Not an AppSubscription, trying AppRecurringApplicationCharge...`);
@@ -89,6 +102,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         if (charge) {
           console.log(`📊 Found AppRecurringApplicationCharge:`, JSON.stringify(charge, null, 2));
           isSubscription = false;
+          
+          // Extraire le montant pour AppRecurringApplicationCharge
+          const amount = parseFloat(charge.price?.amount || "0");
+          console.log(`💰 AppRecurringApplicationCharge amount: ${amount}`);
+          
+          // Mapper au plan correspondant
+          for (const [planKey, planData] of Object.entries(PLANS)) {
+            if (Math.abs(planData.price - amount) < 0.02) {
+              detectedPlan = planKey;
+              break;
+            }
+          }
         }
       } catch (error) {
         console.log(`❌ Error fetching charge:`, error);
@@ -103,31 +128,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // Déterminer le statut selon le type
     const status = charge.status;
     console.log(`📋 Charge status: ${status}`);
+    console.log(`🎯 Detected plan: ${detectedPlan}`);
 
     if (status === "ACTIVE" || status === "active") {
-      // Charge acceptée - mettre à jour l'abonnement local
-      let amount;
-      
-      if (isSubscription) {
-        // AppSubscription
-        amount = parseFloat(charge.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
-      } else {
-        // AppRecurringApplicationCharge
-        amount = parseFloat(charge.price?.amount || "0");
-      }
-      
-      console.log(`💰 Detected amount: ${amount}`);
-      
-      // Mapper le montant au plan correspondant
-      let detectedPlan = "free";
-      for (const [planKey, planData] of Object.entries(PLANS)) {
-        if (Math.abs(planData.price - amount) < 0.02) {
-          detectedPlan = planKey;
-          break;
-        }
-      }
-
-      console.log(`✅ Charge approved - updating to ${detectedPlan} plan`);
+      // ✅ SOLUTION: Mise à jour IMMÉDIATE de l'abonnement local
+      console.log(`✅ Charge approved - updating to ${detectedPlan} plan IMMEDIATELY`);
 
       await updateSubscription(shop, {
         planName: detectedPlan,
@@ -139,9 +144,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 jours par défaut
       });
 
-      // Construire l'URL de redirection vers l'app embedded
+      console.log(`🎉 Subscription successfully updated to ${detectedPlan}`);
+
+      // ✅ SOLUTION: Redirection avec trigger de sync automatique
       const host = Buffer.from(`${shop}/admin`).toString('base64');
-      const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&plan=${detectedPlan}`;
+      const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&plan=${detectedPlan}&trigger_sync=1&sync_needed=1`;
       
       console.log(`🔗 Redirecting to: ${redirectUrl}`);
       return redirect(redirectUrl);

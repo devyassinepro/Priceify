@@ -26,6 +26,8 @@ import { getPlan, formatPriceDisplay } from "../lib/plans";
 import { smartAutoSync } from "../lib/auto-sync.server";
 import { useEffect } from "react";
 
+// Amélioration de la partie loader dans app/routes/app._index.tsx
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   
@@ -33,24 +35,52 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log(`🏠 App index loaded for ${session.shop}`);
   console.log(`🔗 Full URL: ${url.toString()}`);
 
-  // ✅ AUTO-SYNC AUTOMATIQUE
+  // ✅ SOLUTION: Auto-sync renforcé avec plusieurs triggers
   let autoSyncResult = null;
-  try {
-    autoSyncResult = await smartAutoSync(admin, session.shop);
-    if (autoSyncResult?.success) {
-      console.log(`✅ Auto-sync successful: ${autoSyncResult.message}`);
+  const triggerSync = url.searchParams.get("trigger_sync");
+  const billingCompleted = url.searchParams.get("billing_completed");
+  const syncNeeded = url.searchParams.get("sync_needed");
+  
+  // ✅ SOLUTION: Forcer la synchronisation dans plusieurs cas
+  const shouldForceSync = 
+    triggerSync === "1" || 
+    (billingCompleted === "1" && syncNeeded === "1") ||
+    (billingCompleted === "1"); // Toujours sync après billing
+
+  if (shouldForceSync) {
+    console.log(`🔄 FORCED sync triggered - billing completed or explicit trigger`);
+    try {
+      const { autoSyncSubscription } = await import("../lib/auto-sync.server");
+      autoSyncResult = await autoSyncSubscription(admin, session.shop);
+      
+      if (autoSyncResult?.success) {
+        console.log(`✅ FORCED sync successful: ${autoSyncResult.message}`);
+      } else {
+        console.log(`❌ FORCED sync failed: ${autoSyncResult?.error}`);
+      }
+    } catch (error) {
+      console.error("❌ FORCED sync error:", error);
     }
-  } catch (error) {
-    console.error("Auto-sync error:", error);
+  } else {
+    // ✅ Auto-sync normal (intelligent)
+    try {
+      const { smartAutoSync } = await import("../lib/auto-sync.server");
+      autoSyncResult = await smartAutoSync(admin, session.shop);
+      
+      if (autoSyncResult?.success) {
+        console.log(`✅ Smart auto-sync successful: ${autoSyncResult.message}`);
+      } else if (autoSyncResult) {
+        console.log(`ℹ️ Smart auto-sync: ${autoSyncResult.message || autoSyncResult.error}`);
+      }
+    } catch (error) {
+      console.error("❌ Smart auto-sync error:", error);
+    }
   }
 
-  // ✅ DÉTECTION BILLING COMPLETED ET TRIGGER SYNC
-  const billingCompleted = url.searchParams.get("billing_completed");
+  // ✅ SOLUTION: Détection des paramètres de billing améliorée
   const billingError = url.searchParams.get("billing_error");
   const plan = url.searchParams.get("plan");
-  const syncNeeded = url.searchParams.get("sync_needed");
   const chargeId = url.searchParams.get("charge_id");
-  const triggerSync = url.searchParams.get("trigger_sync");
   
   console.log(`📋 Billing params detected:`);
   console.log(`- billing_completed: ${billingCompleted}`);
@@ -60,67 +90,50 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log(`- charge_id: ${chargeId || 'Not provided'}`);
   console.log(`- trigger_sync: ${triggerSync}`);
   
-  // ✅ FORCE SYNC si demandé (venant de billing-return)
-  if (triggerSync === "1" || (billingCompleted === "1" && syncNeeded === "1")) {
-    console.log(`🔄 Triggered sync detected, forcing auto-sync...`);
-    try {
-      const { autoSyncSubscription } = await import("../lib/auto-sync.server");
-      const forcedSyncResult = await autoSyncSubscription(admin, session.shop);
-      if (forcedSyncResult?.success) {
-        console.log(`✅ Forced sync successful: ${forcedSyncResult.message}`);
-        autoSyncResult = forcedSyncResult;
-      } else {
-        console.log(`❌ Forced sync failed: ${forcedSyncResult?.error}`);
-      }
-    } catch (error) {
-      console.error("Forced sync failed:", error);
-    }
-  }
-  
-  // Gérer les erreurs de billing
+  // Gérer les messages de billing
   let billingMessage = null;
   let billingStatus = null;
   
   if (billingCompleted === "1") {
     billingStatus = "success";
     if (autoSyncResult?.success) {
-      billingMessage = `Payment successful! You're now on the ${autoSyncResult.syncedPlan} plan.`;
+      billingMessage = `🎉 Payment successful! You're now on the ${autoSyncResult.syncedPlan} plan.`;
+    } else if (plan) {
+      billingMessage = `🎉 Payment successful! You're now on the ${plan} plan.`;
     } else {
-      billingMessage = plan 
-        ? `Your subscription has been successfully activated! You're now on the ${plan} plan.`
-        : "Your subscription has been successfully activated!";
+      billingMessage = "🎉 Your subscription has been successfully activated!";
     }
   } else if (billingError) {
     billingStatus = "error";
     switch (billingError) {
       case "declined":
-        billingMessage = "Payment was declined. You can try again or choose a different payment method.";
+        billingMessage = "💳 Payment was declined. You can try again or choose a different payment method.";
         break;
       case "processing_error":
-        billingMessage = "There was an error processing your payment. Please try again.";
+        billingMessage = "⚠️ There was an error processing your payment. Please try again.";
         break;
       case "charge_not_found":
-        billingMessage = "Payment information not found. Please try again.";
+        billingMessage = "❌ Payment information not found. Please try again.";
         break;
       case "no_charge_id":
-        billingMessage = "Invalid payment information. Please try again.";
+        billingMessage = "❌ Invalid payment information. Please try again.";
         break;
       case "pending":
-        billingMessage = "Your payment is being processed. Please wait a moment and refresh the page.";
+        billingMessage = "⏳ Your payment is being processed. Please wait a moment and refresh the page.";
         break;
       case "unknown":
-        billingMessage = "An unexpected error occurred. Please contact support if this persists.";
+        billingMessage = "❓ An unexpected error occurred. Please contact support if this persists.";
         break;
       default:
-        billingMessage = "There was an issue with your payment. Please try again.";
+        billingMessage = "⚠️ There was an issue with your payment. Please try again.";
     }
   }
   
-  // Récupérer les données d'abonnement
+  // Récupérer les données d'abonnement (après sync)
   const subscriptionStats = await getSubscriptionStats(session.shop);
   const planData = getPlan(subscriptionStats.planName);
 
-  // Paramètres de synchronisation
+  // Paramètres de synchronisation existants (garder pour compatibilité)
   const syncStatus = url.searchParams.get("sync");
   const syncPlan = url.searchParams.get("sync_plan");
   const syncMessage = url.searchParams.get("message");
@@ -137,10 +150,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     syncStatus,
     syncPlan,
     syncMessage,
-    autoSyncResult, // Passer le résultat de l'auto-sync
+    autoSyncResult,
   });
 };
-
 export default function Index() {
   const { 
     shop, 
