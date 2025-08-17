@@ -1,4 +1,3 @@
-// app/routes/billing-return.tsx
 import { LoaderFunctionArgs, redirect } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { updateSubscription } from "../models/subscription.server";
