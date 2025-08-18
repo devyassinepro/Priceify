@@ -21,12 +21,10 @@ import {
   CheckCircleIcon,
   PlanIcon,
 } from "@shopify/polaris-icons";
-import { getSubscriptionStats } from "../models/subscription.server";
-import { getPlan, formatPriceDisplay } from "../lib/plans";
+import { getSubscriptionStats, updateSubscription } from "../models/subscription.server";
+import { getPlan, formatPriceDisplay, PLANS } from "../lib/plans";
 import { smartAutoSync } from "../lib/auto-sync.server";
 import { useEffect } from "react";
-
-// Amélioration de la partie loader dans app/routes/app._index.tsx
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -35,36 +33,190 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log(`🏠 App index loaded for ${session.shop}`);
   console.log(`🔗 Full URL: ${url.toString()}`);
 
-  // ✅ SOLUTION: Auto-sync renforcé avec plusieurs triggers
-  let autoSyncResult = null;
-  const triggerSync = url.searchParams.get("trigger_sync");
+  // ✅ SOLUTION: Détecter les paramètres de billing et forcer la synchronisation
   const billingCompleted = url.searchParams.get("billing_completed");
+  const chargeId = url.searchParams.get("charge_id");
+  const needsManualSync = url.searchParams.get("needs_manual_sync");
+  const triggerSync = url.searchParams.get("trigger_sync");
   const syncNeeded = url.searchParams.get("sync_needed");
+  const plan = url.searchParams.get("plan");
   
-  // ✅ SOLUTION: Forcer la synchronisation dans plusieurs cas
+  console.log(`📋 Billing params detected:`);
+  console.log(`- billing_completed: ${billingCompleted}`);
+  console.log(`- charge_id: ${chargeId}`);
+  console.log(`- needs_manual_sync: ${needsManualSync}`);
+  console.log(`- trigger_sync: ${triggerSync}`);
+  console.log(`- sync_needed: ${syncNeeded}`);
+  console.log(`- plan: ${plan}`);
+
+  let autoSyncResult = null;
+  let billingMessage = null;
+  let billingStatus = null;
+
+  // ✅ SOLUTION: Forcer la synchronisation si le billing a été complété ou si manual sync requis
   const shouldForceSync = 
     triggerSync === "1" || 
-    (billingCompleted === "1" && syncNeeded === "1") ||
-    (billingCompleted === "1"); // Toujours sync après billing
+    billingCompleted === "1" ||
+    needsManualSync === "1" ||
+    (billingCompleted === "1" && syncNeeded === "1");
 
   if (shouldForceSync) {
-    console.log(`🔄 FORCED sync triggered - billing completed or explicit trigger`);
-    try {
-      const { autoSyncSubscription } = await import("../lib/auto-sync.server");
-      autoSyncResult = await autoSyncSubscription(admin, session.shop);
+    console.log(`🔄 FORCED sync triggered - billing completed, manual sync needed, or explicit trigger`);
+    
+    // ✅ SOLUTION: Si on a un charge_id, essayer de traiter le billing manuellement
+    if (chargeId && billingCompleted === "1") {
+      console.log(`💳 Processing billing completion for charge: ${chargeId}`);
       
-      if (autoSyncResult?.success) {
-        console.log(`✅ FORCED sync successful: ${autoSyncResult.message}`);
-      } else {
-        console.log(`❌ FORCED sync failed: ${autoSyncResult?.error}`);
+      try {
+        // Essayer de récupérer et traiter l'abonnement directement
+        let charge = null;
+        let detectedPlan = "free";
+        let isSubscription = false;
+
+        // Essayer AppSubscription
+        try {
+          const subscriptionResponse = await admin.graphql(`
+            query getAppSubscription($id: ID!) {
+              appSubscription(id: $id) {
+                id
+                name
+                status
+                currentPeriodEnd
+                lineItems {
+                  plan {
+                    pricingDetails {
+                      ... on AppRecurringPricing {
+                        price {
+                          amount
+                          currencyCode
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          `, {
+            variables: { id: `gid://shopify/AppSubscription/${chargeId}` }
+          });
+
+          const subscriptionResult = await subscriptionResponse.json();
+          charge = subscriptionResult.data?.appSubscription;
+          
+          if (charge && charge.status === "ACTIVE") {
+            console.log(`📊 Found active AppSubscription`);
+            isSubscription = true;
+            
+            const amount = parseFloat(charge.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
+            console.log(`💰 Amount: ${amount}`);
+            
+            // Mapper au plan correspondant
+            for (const [planKey, planData] of Object.entries(PLANS)) {
+              if (Math.abs(planData.price - amount) < 0.02) {
+                detectedPlan = planKey;
+                break;
+              }
+            }
+          }
+        } catch (error) {
+          console.log(`ℹ️ Not an AppSubscription, trying AppRecurringApplicationCharge...`);
+        }
+
+        // Si pas trouvé, essayer AppRecurringApplicationCharge
+        if (!charge) {
+          try {
+            const chargeResponse = await admin.graphql(`
+              query getAppRecurringApplicationCharge($id: ID!) {
+                appRecurringApplicationCharge(id: $id) {
+                  id
+                  name
+                  price {
+                    amount
+                    currencyCode
+                  }
+                  status
+                }
+              }
+            `, {
+              variables: { id: `gid://shopify/AppRecurringApplicationCharge/${chargeId}` }
+            });
+
+            const chargeResult = await chargeResponse.json();
+            charge = chargeResult.data?.appRecurringApplicationCharge;
+            
+            if (charge && charge.status === "active") {
+              console.log(`📊 Found active AppRecurringApplicationCharge`);
+              isSubscription = false;
+              
+              const amount = parseFloat(charge.price?.amount || "0");
+              console.log(`💰 Amount: ${amount}`);
+              
+              // Mapper au plan correspondant
+              for (const [planKey, planData] of Object.entries(PLANS)) {
+                if (Math.abs(planData.price - amount) < 0.02) {
+                  detectedPlan = planKey;
+                  break;
+                }
+              }
+            }
+          } catch (error) {
+            console.log(`❌ Error fetching charge:`, error);
+          }
+        }
+
+        // Si on a trouvé un abonnement actif, mettre à jour localement
+        if (charge && detectedPlan !== "free") {
+          console.log(`✅ Updating subscription to ${detectedPlan} plan`);
+          
+          await updateSubscription(session.shop, {
+            planName: detectedPlan,
+            status: "active",
+            usageLimit: PLANS[detectedPlan as keyof typeof PLANS].usageLimit,
+            subscriptionId: isSubscription ? `gid://shopify/AppSubscription/${chargeId}` : `gid://shopify/AppRecurringApplicationCharge/${chargeId}`,
+            currentPeriodEnd: isSubscription && charge.currentPeriodEnd 
+              ? new Date(charge.currentPeriodEnd) 
+              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          });
+
+          billingStatus = "success";
+          billingMessage = `🎉 Payment successful! You're now on the ${PLANS[detectedPlan as keyof typeof PLANS].displayName} plan.`;
+          
+          autoSyncResult = {
+            success: true,
+            syncedPlan: detectedPlan,
+            message: `Manual billing sync successful: ${detectedPlan} plan activated`
+          };
+        } else {
+          console.log(`⚠️ Could not process billing - charge not found or not active`);
+          billingStatus = "error";
+          billingMessage = "⚠️ Payment processed but plan activation failed. Please contact support.";
+        }
+        
+      } catch (error) {
+        console.error("❌ Error processing manual billing:", error);
+        billingStatus = "error";
+        billingMessage = "⚠️ Error processing your payment. Please try syncing manually or contact support.";
       }
-    } catch (error) {
-      console.error("❌ FORCED sync error:", error);
+    } else {
+      // Sync normal sans billing
+      try {
+        const { autoSyncSubscription } = await import("../lib/auto-sync.server");
+        autoSyncResult = await autoSyncSubscription(admin, session.shop);
+        
+        if (autoSyncResult?.success) {
+          console.log(`✅ FORCED sync successful: ${autoSyncResult.message}`);
+          billingStatus = "success";
+          billingMessage = `✅ Subscription synced: You're on the ${autoSyncResult.syncedPlan} plan.`;
+        } else {
+          console.log(`❌ FORCED sync failed: ${autoSyncResult?.error}`);
+        }
+      } catch (error) {
+        console.error("❌ FORCED sync error:", error);
+      }
     }
   } else {
     // ✅ Auto-sync normal (intelligent)
     try {
-      const { smartAutoSync } = await import("../lib/auto-sync.server");
       autoSyncResult = await smartAutoSync(admin, session.shop);
       
       if (autoSyncResult?.success) {
@@ -77,33 +229,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  // ✅ SOLUTION: Détection des paramètres de billing améliorée
+  // ✅ Gérer les erreurs de billing
   const billingError = url.searchParams.get("billing_error");
-  const plan = url.searchParams.get("plan");
-  const chargeId = url.searchParams.get("charge_id");
   
-  console.log(`📋 Billing params detected:`);
-  console.log(`- billing_completed: ${billingCompleted}`);
-  console.log(`- billing_error: ${billingError}`);
-  console.log(`- sync_needed: ${syncNeeded}`);
-  console.log(`- plan: ${plan}`);
-  console.log(`- charge_id: ${chargeId || 'Not provided'}`);
-  console.log(`- trigger_sync: ${triggerSync}`);
-  
-  // Gérer les messages de billing
-  let billingMessage = null;
-  let billingStatus = null;
-  
-  if (billingCompleted === "1") {
-    billingStatus = "success";
-    if (autoSyncResult?.success) {
-      billingMessage = `🎉 Payment successful! You're now on the ${autoSyncResult.syncedPlan} plan.`;
-    } else if (plan) {
-      billingMessage = `🎉 Payment successful! You're now on the ${plan} plan.`;
-    } else {
-      billingMessage = "🎉 Your subscription has been successfully activated!";
-    }
-  } else if (billingError) {
+  if (billingError && !billingStatus) {
     billingStatus = "error";
     switch (billingError) {
       case "declined":
@@ -115,21 +244,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       case "charge_not_found":
         billingMessage = "❌ Payment information not found. Please try again.";
         break;
-      case "no_charge_id":
+      case "missing_params":
         billingMessage = "❌ Invalid payment information. Please try again.";
         break;
       case "pending":
         billingMessage = "⏳ Your payment is being processed. Please wait a moment and refresh the page.";
-        break;
-      case "unknown":
-        billingMessage = "❓ An unexpected error occurred. Please contact support if this persists.";
         break;
       default:
         billingMessage = "⚠️ There was an issue with your payment. Please try again.";
     }
   }
   
-  // Récupérer les données d'abonnement (après sync)
+  // Récupérer les données d'abonnement (après sync/update)
   const subscriptionStats = await getSubscriptionStats(session.shop);
   const planData = getPlan(subscriptionStats.planName);
 
@@ -153,6 +279,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     autoSyncResult,
   });
 };
+
 export default function Index() {
   const { 
     shop, 
@@ -185,11 +312,13 @@ export default function Index() {
         params.delete("billing_error");
         params.delete("plan");
         params.delete("charge_id");
+        params.delete("needs_manual_sync");
         // Nettoyer les paramètres de sync
         params.delete("sync");
         params.delete("sync_plan");
         params.delete("message");
         params.delete("sync_needed");
+        params.delete("trigger_sync");
         // Nettoyer les paramètres embedded
         params.delete("host");
         params.delete("shop");
@@ -240,6 +369,11 @@ export default function Index() {
                 <Link to="/app/billing">
                   <Button variant="primary">Try Again</Button>
                 </Link>
+                <span style={{ marginLeft: "1rem" }}>
+                  <Link to="/app/manual-sync">
+                    <Button>Manual Sync</Button>
+                  </Link>
+                </span>
               </div>
             </Banner>
           </Layout.Section>

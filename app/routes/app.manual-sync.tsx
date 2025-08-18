@@ -1,6 +1,3 @@
-// app/routes/app.manual-sync.tsx
-// Route pour synchroniser manuellement après un paiement
-
 import { ActionFunctionArgs, LoaderFunctionArgs, json, redirect } from "@remix-run/node";
 import { useLoaderData, useActionData, Form } from "@remix-run/react";
 import { authenticate } from "../shopify.server";

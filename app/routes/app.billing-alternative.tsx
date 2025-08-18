@@ -1,6 +1,3 @@
-// app/routes/app.billing-alternative.tsx
-// Alternative simplifiée qui fonctionne avec Shopify App Charges classiques
-
 import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";

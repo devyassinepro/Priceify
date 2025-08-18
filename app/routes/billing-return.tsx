@@ -1,25 +1,43 @@
-// app/routes/billing-return.tsx - Version améliorée avec sync forcé
+// app/routes/billing-return.tsx - Version corrigée avec gestion d'authentification
 import { LoaderFunctionArgs, redirect } from "@remix-run/node";
-import { authenticate } from "../shopify.server";
 import { updateSubscription } from "../models/subscription.server";
 import { PLANS } from "../lib/plans";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
-    const { admin, session } = await authenticate.admin(request);
     const url = new URL(request.url);
     const chargeId = url.searchParams.get("charge_id");
-    const shop = session.shop;
+    const shop = url.searchParams.get("shop");
 
-    console.log(`🔄 Processing billing return for ${shop}`);
+    console.log(`🔄 Processing billing return`);
     console.log(`💳 Charge ID: ${chargeId}`);
+    console.log(`🏪 Shop: ${shop}`);
 
-    if (!chargeId) {
-      console.log("❌ No charge ID provided, redirecting to app");
-      return redirect("/app?billing_error=no_charge_id");
+    if (!chargeId || !shop) {
+      console.log("❌ Missing charge ID or shop, redirecting to app");
+      return redirect("/app?billing_error=missing_params");
     }
 
-    // ✅ SOLUTION AMÉLIORÉE: Force sync après paiement
+    // ✅ SOLUTION 1: Authentification avec le shop explicite
+    let admin;
+    try {
+      const { authenticate } = await import("../shopify.server");
+      const authResult = await authenticate.admin(request);
+      admin = authResult.admin;
+      console.log(`✅ Authentication successful for ${authResult.session.shop}`);
+    } catch (authError: any) {
+      console.log(`❌ Authentication failed:`, authError.message);
+      
+      // ✅ SOLUTION 2: Si l'auth échoue, essayer une approche alternative
+      // Créer une URL de redirection vers l'app avec les paramètres de billing
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&charge_id=${chargeId}&needs_manual_sync=1`;
+      
+      console.log(`🔗 Auth failed, redirecting to app for manual processing: ${redirectUrl}`);
+      return redirect(redirectUrl);
+    }
+
+    // ✅ SOLUTION 3: Déterminer le type de charge et récupérer les détails
     let charge = null;
     let isSubscription = false;
     let detectedPlan = "free";
@@ -49,7 +67,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           }
         }
       `, {
-        variables: { id: chargeId }
+        variables: { id: `gid://shopify/AppSubscription/${chargeId}` }
       });
 
       const subscriptionResult = await subscriptionResponse.json();
@@ -93,7 +111,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             }
           }
         `, {
-          variables: { id: chargeId }
+          variables: { id: `gid://shopify/AppRecurringApplicationCharge/${chargeId}` }
         });
 
         const chargeResult = await chargeResponse.json();
@@ -122,7 +140,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     if (!charge) {
       console.log("❌ Charge not found in either system");
-      return redirect("/app?billing_error=charge_not_found");
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      return redirect(`/app?host=${host}&shop=${shop}&billing_error=charge_not_found`);
     }
 
     // Déterminer le statut selon le type
@@ -131,14 +150,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.log(`🎯 Detected plan: ${detectedPlan}`);
 
     if (status === "ACTIVE" || status === "active") {
-      // ✅ SOLUTION: Mise à jour IMMÉDIATE de l'abonnement local
+      // ✅ SOLUTION 4: Mise à jour IMMÉDIATE de l'abonnement local
       console.log(`✅ Charge approved - updating to ${detectedPlan} plan IMMEDIATELY`);
 
       await updateSubscription(shop, {
         planName: detectedPlan,
         status: "active",
         usageLimit: PLANS[detectedPlan as keyof typeof PLANS].usageLimit,
-        subscriptionId: chargeId,
+        subscriptionId: isSubscription ? `gid://shopify/AppSubscription/${chargeId}` : `gid://shopify/AppRecurringApplicationCharge/${chargeId}`,
         currentPeriodEnd: isSubscription && charge.currentPeriodEnd 
           ? new Date(charge.currentPeriodEnd) 
           : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 jours par défaut
@@ -146,7 +165,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
       console.log(`🎉 Subscription successfully updated to ${detectedPlan}`);
 
-      // ✅ SOLUTION: Redirection avec trigger de sync automatique
+      // ✅ SOLUTION 5: Redirection avec trigger de sync automatique
       const host = Buffer.from(`${shop}/admin`).toString('base64');
       const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&plan=${detectedPlan}&trigger_sync=1&sync_needed=1`;
       
@@ -172,7 +191,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   } catch (error: any) {
     console.error("💥 Error processing billing return:", error);
     
-    // Essayer de récupérer le shop depuis l'URL ou les paramètres
+    // Essayer de récupérer le shop depuis l'URL
     const url = new URL(request.url);
     const shop = url.searchParams.get("shop");
     
