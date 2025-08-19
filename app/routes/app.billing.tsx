@@ -1,4 +1,4 @@
-// app/routes/app.billing.tsx
+// app/routes/app.billing.tsx - Version améliorée avec URLs de retour robustes
 import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";
@@ -61,13 +61,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
 
-    // ✅ SOLUTION: URL de retour améliorée avec tous les paramètres nécessaires
+    // ✅ SOLUTION: URLs de retour multiples et robustes
     const protocol = request.headers.get('x-forwarded-proto') || 'https';
-    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '');
+    const host = request.headers.get('x-forwarded-host') || 
+                 request.headers.get('host') || 
+                 process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '') ||
+                 'localhost:3000';
+    
     const baseUrl = `${protocol}://${host}`;
     
-    // ✅ SOLUTION: URL de retour qui inclut le charge_id automatiquement
-    const returnUrl = `${baseUrl}/billing-return?shop=${session.shop}`;
+    // ✅ URL de retour avec tous les paramètres nécessaires
+    const returnUrl = `${baseUrl}/billing-return?shop=${session.shop}&plan=${selectedPlan}`;
+    
+    console.log(`🔗 Base URL: ${baseUrl}`);
     console.log(`🔗 Return URL: ${returnUrl}`);
     
     // Create Shopify subscription using App Subscriptions API
@@ -90,7 +96,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       variables: {
         name: `${plan.displayName} Plan`,
         returnUrl,
-        test: true, // Changez en false pour la production
+        test: process.env.NODE_ENV !== "production", // ✅ Automatique selon l'environnement
         lineItems: [
           {
             plan: {
@@ -128,11 +134,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
     console.log(`🆔 Subscription ID: ${subscriptionId}`);
 
-    // ✅ SOLUTION: Stocker l'ID et le plan sélectionné pour référence future
+    // ✅ Stocker l'ID et le plan sélectionné pour référence future
     if (subscriptionId) {
       await updateSubscription(session.shop, {
         subscriptionId: subscriptionId,
-        // Nota: ne pas changer le plan ici, attendre la confirmation de paiement
+        // Note: ne pas changer le plan ici, attendre la confirmation de paiement
       });
     }
 
@@ -159,7 +165,7 @@ export default function Billing() {
   // Redirect to Shopify billing confirmation page
   React.useEffect(() => {
     if (actionData?.confirmationUrl) {
-      console.log('Redirecting to:', actionData.confirmationUrl);
+      console.log('🔗 Redirecting to:', actionData.confirmationUrl);
       // Use window.top to ensure we break out of iframe if embedded
       if (window.top) {
         window.top.location.href = actionData.confirmationUrl;
@@ -192,6 +198,11 @@ export default function Billing() {
           <Layout.Section>
             <Banner title="Subscription Error" tone="critical">
               <Text as="p">{actionData.error}</Text>
+              <div style={{ marginTop: "1rem" }}>
+                <Text as="p" variant="bodySm">
+                  If the issue persists, try the manual sync option or contact support.
+                </Text>
+              </div>
             </Banner>
           </Layout.Section>
         )}
@@ -208,6 +219,11 @@ export default function Billing() {
           <Layout.Section>
             <Banner title="🔄 Redirecting to Shopify..." tone="info">
               <Text as="p">Please wait while we redirect you to complete your subscription.</Text>
+              <div style={{ marginTop: "1rem" }}>
+                <Text as="p" variant="bodySm">
+                  After payment, you'll be automatically redirected back to the app with your new plan activated.
+                </Text>
+              </div>
             </Banner>
           </Layout.Section>
         )}
@@ -326,7 +342,7 @@ export default function Billing() {
           </Grid>
         </Layout.Section>
 
-        {/* Billing information */}
+        {/* Billing information and troubleshooting */}
         <Layout.Section>
           <Card>
             <div style={{ padding: "1.5rem" }}>
@@ -345,6 +361,23 @@ export default function Billing() {
                   <Text as="p" variant="bodySm">
                     • {process.env.NODE_ENV !== "production" ? "Test mode" : "Live billing"} - charges will {process.env.NODE_ENV !== "production" ? "not" : ""} appear on your Shopify bill
                   </Text>
+                </div>
+                
+                <div style={{ 
+                  marginTop: "1rem", 
+                  padding: "1rem", 
+                  backgroundColor: "#f8f9fa", 
+                  borderRadius: "8px" 
+                }}>
+                  <Text as="h4" variant="headingMd">🔧 Having Issues?</Text>
+                  <Text as="p" variant="bodySm">
+                    If billing doesn't work properly, you can manually sync your subscription:
+                  </Text>
+                  <div style={{ marginTop: "0.5rem" }}>
+                    <Button url="/app/manual-sync" size="micro">
+                      Manual Sync
+                    </Button>
+                  </div>
                 </div>
               </BlockStack>
             </div>
