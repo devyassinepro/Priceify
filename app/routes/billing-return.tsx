@@ -1,45 +1,48 @@
-// app/routes/billing-return.tsx - VERSION CORRIGÉE
+// app/routes/billing-return.tsx - Version corrigée avec gestion d'authentification
 import { LoaderFunctionArgs, redirect } from "@remix-run/node";
-import { authenticate } from "../shopify.server";
-import { autoSyncSubscription } from "../lib/auto-sync.server";
+import { updateSubscription } from "../models/subscription.server";
+import { PLANS } from "../lib/plans";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
-    const { admin, session } = await authenticate.admin(request);
     const url = new URL(request.url);
     const chargeId = url.searchParams.get("charge_id");
-    const requestedPlan = url.searchParams.get("plan");
-    const shop = session.shop;
+    const shop = url.searchParams.get("shop");
 
-    console.log(`🔄 Processing billing return for ${shop}`);
+    console.log(`🔄 Processing billing return`);
     console.log(`💳 Charge ID: ${chargeId}`);
-    console.log(`📋 Requested Plan: ${requestedPlan}`);
+    console.log(`🏪 Shop: ${shop}`);
 
-    // Construire l'URL de base pour les redirections
-    const host = Buffer.from(`${shop}/admin`).toString('base64');
-    const baseAppUrl = `/app?host=${host}&shop=${shop}`;
-
-    if (!chargeId) {
-      console.log("❌ No charge ID provided, redirecting with error");
-      return redirect(`${baseAppUrl}&billing_error=no_charge_id`);
+    if (!chargeId || !shop) {
+      console.log("❌ Missing charge ID or shop, redirecting to app");
+      return redirect("/app?billing_error=missing_params");
     }
 
-    // ✅ CORRECTION: Essayer l'auto-sync en premier
-    console.log(`🔄 Running auto-sync for ${shop}...`);
-    const syncResult = await autoSyncSubscription(admin, shop);
-    
-    if (syncResult.success) {
-      console.log(`✅ Auto-sync successful: ${syncResult.syncedPlan}`);
-      return redirect(`${baseAppUrl}&billing_completed=1&plan=${syncResult.syncedPlan}&charge_id=${chargeId}&sync_source=auto`);
+    // ✅ SOLUTION 1: Authentification avec le shop explicite
+    let admin;
+    try {
+      const { authenticate } = await import("../shopify.server");
+      const authResult = await authenticate.admin(request);
+      admin = authResult.admin;
+      console.log(`✅ Authentication successful for ${authResult.session.shop}`);
+    } catch (authError: any) {
+      console.log(`❌ Authentication failed:`, authError.message);
+      
+      // ✅ SOLUTION 2: Si l'auth échoue, essayer une approche alternative
+      // Créer une URL de redirection vers l'app avec les paramètres de billing
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&charge_id=${chargeId}&needs_manual_sync=1`;
+      
+      console.log(`🔗 Auth failed, redirecting to app for manual processing: ${redirectUrl}`);
+      return redirect(redirectUrl);
     }
 
-    console.log(`❌ Auto-sync failed: ${syncResult.error}, trying manual charge verification...`);
-
-    // ✅ Si auto-sync échoue, vérifier manuellement la charge
+    // ✅ SOLUTION 3: Déterminer le type de charge et récupérer les détails
     let charge = null;
     let isSubscription = false;
+    let detectedPlan = "free";
 
-    // Essayer d'abord AppSubscription
+    // Essayer d'abord AppSubscription (nouveau système)
     try {
       const subscriptionResponse = await admin.graphql(`
         query getAppSubscription($id: ID!) {
@@ -64,15 +67,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           }
         }
       `, {
-        variables: { id: chargeId }
+        variables: { id: `gid://shopify/AppSubscription/${chargeId}` }
       });
 
       const subscriptionResult = await subscriptionResponse.json();
       charge = subscriptionResult.data?.appSubscription;
       
       if (charge) {
-        console.log(`📊 Found AppSubscription:`, charge);
+        console.log(`📊 Found AppSubscription:`, JSON.stringify(charge, null, 2));
         isSubscription = true;
+        
+        // Extraire le montant pour AppSubscription
+        const amount = parseFloat(charge.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
+        console.log(`💰 AppSubscription amount: ${amount}`);
+        
+        // Mapper au plan correspondant
+        for (const [planKey, planData] of Object.entries(PLANS)) {
+          if (Math.abs(planData.price - amount) < 0.02) {
+            detectedPlan = planKey;
+            break;
+          }
+        }
       }
     } catch (error) {
       console.log(`ℹ️ Not an AppSubscription, trying AppRecurringApplicationCharge...`);
@@ -96,15 +111,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             }
           }
         `, {
-          variables: { id: chargeId }
+          variables: { id: `gid://shopify/AppRecurringApplicationCharge/${chargeId}` }
         });
 
         const chargeResult = await chargeResponse.json();
         charge = chargeResult.data?.appRecurringApplicationCharge;
         
         if (charge) {
-          console.log(`📊 Found AppRecurringApplicationCharge:`, charge);
+          console.log(`📊 Found AppRecurringApplicationCharge:`, JSON.stringify(charge, null, 2));
           isSubscription = false;
+          
+          // Extraire le montant pour AppRecurringApplicationCharge
+          const amount = parseFloat(charge.price?.amount || "0");
+          console.log(`💰 AppRecurringApplicationCharge amount: ${amount}`);
+          
+          // Mapper au plan correspondant
+          for (const [planKey, planData] of Object.entries(PLANS)) {
+            if (Math.abs(planData.price - amount) < 0.02) {
+              detectedPlan = planKey;
+              break;
+            }
+          }
         }
       } catch (error) {
         console.log(`❌ Error fetching charge:`, error);
@@ -113,63 +140,52 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     if (!charge) {
       console.log("❌ Charge not found in either system");
-      return redirect(`${baseAppUrl}&billing_error=charge_not_found&charge_id=${chargeId}`);
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      return redirect(`/app?host=${host}&shop=${shop}&billing_error=charge_not_found`);
     }
 
+    // Déterminer le statut selon le type
     const status = charge.status;
     console.log(`📋 Charge status: ${status}`);
+    console.log(`🎯 Detected plan: ${detectedPlan}`);
 
     if (status === "ACTIVE" || status === "active") {
-      // ✅ CORRECTION: Synchronisation manuelle avec les bonnes données
-      console.log(`✅ Charge approved - doing manual sync...`);
-      
-      let amount;
-      if (isSubscription) {
-        amount = parseFloat(charge.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
-      } else {
-        amount = parseFloat(charge.price?.amount || "0");
-      }
-      
-      console.log(`💰 Detected amount: ${amount}`);
-      
-      // Mapper le montant au plan correspondant
-      const { PLANS } = await import("../lib/plans");
-      const { updateSubscription } = await import("../models/subscription.server");
-      
-      let detectedPlan = "free";
-      for (const [planKey, planData] of Object.entries(PLANS)) {
-        if (Math.abs(planData.price - amount) < 0.02) {
-          detectedPlan = planKey;
-          break;
-        }
-      }
-
-      console.log(`✅ Manual sync: updating to ${detectedPlan} plan`);
+      // ✅ SOLUTION 4: Mise à jour IMMÉDIATE de l'abonnement local
+      console.log(`✅ Charge approved - updating to ${detectedPlan} plan IMMEDIATELY`);
 
       await updateSubscription(shop, {
         planName: detectedPlan,
         status: "active",
         usageLimit: PLANS[detectedPlan as keyof typeof PLANS].usageLimit,
-        subscriptionId: chargeId,
+        subscriptionId: isSubscription ? `gid://shopify/AppSubscription/${chargeId}` : `gid://shopify/AppRecurringApplicationCharge/${chargeId}`,
         currentPeriodEnd: isSubscription && charge.currentPeriodEnd 
           ? new Date(charge.currentPeriodEnd) 
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 jours par défaut
       });
 
-      console.log(`🔗 Redirecting to app with success...`);
-      return redirect(`${baseAppUrl}&billing_completed=1&plan=${detectedPlan}&charge_id=${chargeId}&sync_source=manual`);
+      console.log(`🎉 Subscription successfully updated to ${detectedPlan}`);
+
+      // ✅ SOLUTION 5: Redirection avec trigger de sync automatique
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&plan=${detectedPlan}&trigger_sync=1&sync_needed=1`;
+      
+      console.log(`🔗 Redirecting to: ${redirectUrl}`);
+      return redirect(redirectUrl);
 
     } else if (status === "DECLINED" || status === "declined") {
       console.log("❌ Charge declined by user");
-      return redirect(`${baseAppUrl}&billing_error=declined&charge_id=${chargeId}`);
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      return redirect(`/app?host=${host}&shop=${shop}&billing_error=declined`);
 
     } else if (status === "PENDING" || status === "pending") {
       console.log(`⏳ Charge status: ${status}`);
-      return redirect(`${baseAppUrl}&billing_error=pending&charge_id=${chargeId}`);
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      return redirect(`/app?host=${host}&shop=${shop}&billing_error=pending`);
 
     } else {
       console.log(`❓ Unknown charge status: ${status}`);
-      return redirect(`${baseAppUrl}&billing_error=unknown_status&status=${status}&charge_id=${chargeId}`);
+      const host = Buffer.from(`${shop}/admin`).toString('base64');
+      return redirect(`/app?host=${host}&shop=${shop}&billing_error=unknown_status`);
     }
 
   } catch (error: any) {
@@ -181,7 +197,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     
     if (shop) {
       const host = Buffer.from(`${shop}/admin`).toString('base64');
-      return redirect(`/app?host=${host}&shop=${shop}&billing_error=processing_error&error=${encodeURIComponent(error.message)}`);
+      return redirect(`/app?host=${host}&shop=${shop}&billing_error=processing_error`);
     }
     
     return redirect("/app?billing_error=unknown");
