@@ -21,99 +21,10 @@ import {
   CheckCircleIcon,
   PlanIcon,
 } from "@shopify/polaris-icons";
-import { getSubscriptionStats, updateSubscription } from "../models/subscription.server";
+import { getSubscriptionStats } from "../models/subscription.server";
 import { getPlan, formatPriceDisplay, PLANS } from "../lib/plans";
 import { smartAutoSync } from "../lib/auto-sync.server";
-import { useEffect, useState } from "react";
-
-// Interface pour les données de billing
-interface BillingReturnData {
-  billing_completed: string;
-  charge_id: string;
-  needs_manual_sync: string;
-  shop: string;
-  timestamp: number;
-}
-
-// Hook personnalisé pour gérer les données de billing
-function useBillingReturnData() {
-  const [billingData, setBillingData] = useState<BillingReturnData | null>(null);
-  const [isProcessed, setIsProcessed] = useState(false);
-
-  useEffect(() => {
-    // Vérifier s'il y a des données de billing dans sessionStorage
-    const storedData = sessionStorage.getItem('billing_return_data');
-    
-    if (storedData && !isProcessed) {
-      try {
-        const data = JSON.parse(storedData) as BillingReturnData;
-        
-        // Vérifier que les données ne sont pas trop anciennes (max 5 minutes)
-        const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
-        
-        if (data.timestamp > fiveMinutesAgo) {
-          console.log('🔄 Found billing return data in sessionStorage:', data);
-          setBillingData(data);
-          
-          // Nettoyer le sessionStorage pour éviter de retraiter
-          sessionStorage.removeItem('billing_return_data');
-          
-          // Marquer comme traité
-          setIsProcessed(true);
-          
-          // Déclencher le traitement du billing côté serveur
-          fetch('/api/process-billing-return', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(data),
-          }).then(response => {
-            if (response.ok) {
-              console.log('✅ Billing processed successfully');
-              // Recharger la page pour voir les changements
-              setTimeout(() => {
-                window.location.reload();
-              }, 1000);
-            } else {
-              console.error('❌ Error processing billing');
-            }
-          }).catch(error => {
-            console.error('❌ Network error:', error);
-          });
-        } else {
-          console.log('⏰ Billing data too old, ignoring');
-          sessionStorage.removeItem('billing_return_data');
-        }
-      } catch (error) {
-        console.error('❌ Error parsing billing data:', error);
-        sessionStorage.removeItem('billing_return_data');
-      }
-    }
-  }, [isProcessed]);
-
-  return { billingData, isProcessed };
-}
-
-// Composant à ajouter dans votre JSX
-function BillingReturnHandler() {
-  const { billingData, isProcessed } = useBillingReturnData();
-
-  if (billingData && !isProcessed) {
-    return (
-      <Layout.Section>
-        <Banner title="🎉 Processing Your Payment..." tone="info">
-          <Text as="p">
-            Your payment has been completed successfully! We're updating your subscription now...
-          </Text>
-        </Banner>
-      </Layout.Section>
-    );
-  }
-
-  return null;
-}
-
+import { useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -122,189 +33,49 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log(`🏠 App index loaded for ${session.shop}`);
   console.log(`🔗 Full URL: ${url.toString()}`);
 
-  // ✅ SOLUTION: Détecter les paramètres de billing et forcer la synchronisation
-  const billingCompleted = url.searchParams.get("billing_completed");
-  const chargeId = url.searchParams.get("charge_id");
-  const needsManualSync = url.searchParams.get("needs_manual_sync");
-  const triggerSync = url.searchParams.get("trigger_sync");
-  const syncNeeded = url.searchParams.get("sync_needed");
-  const plan = url.searchParams.get("plan");
+  // ✅ SIMPLE: Détecter les paramètres de succès billing
+  const billingSuccess = url.searchParams.get("billing_success");
+  const planUpgraded = url.searchParams.get("plan");
+  const upgraded = url.searchParams.get("upgraded");
+  const billingError = url.searchParams.get("billing_error");
   
-  console.log(`📋 Billing params detected:`);
-  console.log(`- billing_completed: ${billingCompleted}`);
-  console.log(`- charge_id: ${chargeId}`);
-  console.log(`- needs_manual_sync: ${needsManualSync}`);
-  console.log(`- trigger_sync: ${triggerSync}`);
-  console.log(`- sync_needed: ${syncNeeded}`);
-  console.log(`- plan: ${plan}`);
-
-  let autoSyncResult = null;
   let billingMessage = null;
   let billingStatus = null;
-
-  // ✅ SOLUTION: Forcer la synchronisation si le billing a été complété ou si manual sync requis
-  const shouldForceSync = 
-    triggerSync === "1" || 
-    billingCompleted === "1" ||
-    needsManualSync === "1" ||
-    (billingCompleted === "1" && syncNeeded === "1");
-
-  if (shouldForceSync) {
-    console.log(`🔄 FORCED sync triggered - billing completed, manual sync needed, or explicit trigger`);
+  let autoSyncResult = null;
+  
+  // Gérer le succès billing
+  if (billingSuccess === "1" && planUpgraded) {
+    billingStatus = "success";
+    billingMessage = `🎉 Payment successful! You're now on the ${PLANS[planUpgraded as keyof typeof PLANS]?.displayName || planUpgraded} plan.`;
+    console.log(`✅ Billing success detected: ${planUpgraded} plan`);
     
-    // ✅ SOLUTION: Si on a un charge_id, essayer de traiter le billing manuellement
-    if (chargeId && billingCompleted === "1") {
-      console.log(`💳 Processing billing completion for charge: ${chargeId}`);
-      
-      try {
-        // Essayer de récupérer et traiter l'abonnement directement
-        let charge = null;
-        let detectedPlan = "free";
-        let isSubscription = false;
-
-        // Essayer AppSubscription
-        try {
-          const subscriptionResponse = await admin.graphql(`
-            query getAppSubscription($id: ID!) {
-              appSubscription(id: $id) {
-                id
-                name
-                status
-                currentPeriodEnd
-                lineItems {
-                  plan {
-                    pricingDetails {
-                      ... on AppRecurringPricing {
-                        price {
-                          amount
-                          currencyCode
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          `, {
-            variables: { id: `gid://shopify/AppSubscription/${chargeId}` }
-          });
-
-          const subscriptionResult = await subscriptionResponse.json();
-          charge = subscriptionResult.data?.appSubscription;
-          
-          if (charge && charge.status === "ACTIVE") {
-            console.log(`📊 Found active AppSubscription`);
-            isSubscription = true;
-            
-            const amount = parseFloat(charge.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
-            console.log(`💰 Amount: ${amount}`);
-            
-            // Mapper au plan correspondant
-            for (const [planKey, planData] of Object.entries(PLANS)) {
-              if (Math.abs(planData.price - amount) < 0.02) {
-                detectedPlan = planKey;
-                break;
-              }
-            }
-          }
-        } catch (error) {
-          console.log(`ℹ️ Not an AppSubscription, trying AppRecurringApplicationCharge...`);
-        }
-
-        // Si pas trouvé, essayer AppRecurringApplicationCharge
-        if (!charge) {
-          try {
-            const chargeResponse = await admin.graphql(`
-              query getAppRecurringApplicationCharge($id: ID!) {
-                appRecurringApplicationCharge(id: $id) {
-                  id
-                  name
-                  price {
-                    amount
-                    currencyCode
-                  }
-                  status
-                }
-              }
-            `, {
-              variables: { id: `gid://shopify/AppRecurringApplicationCharge/${chargeId}` }
-            });
-
-            const chargeResult = await chargeResponse.json();
-            charge = chargeResult.data?.appRecurringApplicationCharge;
-            
-            if (charge && charge.status === "active") {
-              console.log(`📊 Found active AppRecurringApplicationCharge`);
-              isSubscription = false;
-              
-              const amount = parseFloat(charge.price?.amount || "0");
-              console.log(`💰 Amount: ${amount}`);
-              
-              // Mapper au plan correspondant
-              for (const [planKey, planData] of Object.entries(PLANS)) {
-                if (Math.abs(planData.price - amount) < 0.02) {
-                  detectedPlan = planKey;
-                  break;
-                }
-              }
-            }
-          } catch (error) {
-            console.log(`❌ Error fetching charge:`, error);
-          }
-        }
-
-        // Si on a trouvé un abonnement actif, mettre à jour localement
-        if (charge && detectedPlan !== "free") {
-          console.log(`✅ Updating subscription to ${detectedPlan} plan`);
-          
-          await updateSubscription(session.shop, {
-            planName: detectedPlan,
-            status: "active",
-            usageLimit: PLANS[detectedPlan as keyof typeof PLANS].usageLimit,
-            subscriptionId: isSubscription ? `gid://shopify/AppSubscription/${chargeId}` : `gid://shopify/AppRecurringApplicationCharge/${chargeId}`,
-            currentPeriodEnd: isSubscription && charge.currentPeriodEnd 
-              ? new Date(charge.currentPeriodEnd) 
-              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          });
-
-          billingStatus = "success";
-          billingMessage = `🎉 Payment successful! You're now on the ${PLANS[detectedPlan as keyof typeof PLANS].displayName} plan.`;
-          
-          autoSyncResult = {
-            success: true,
-            syncedPlan: detectedPlan,
-            message: `Manual billing sync successful: ${detectedPlan} plan activated`
-          };
-        } else {
-          console.log(`⚠️ Could not process billing - charge not found or not active`);
-          billingStatus = "error";
-          billingMessage = "⚠️ Payment processed but plan activation failed. Please contact support.";
-        }
-        
-      } catch (error) {
-        console.error("❌ Error processing manual billing:", error);
-        billingStatus = "error";
-        billingMessage = "⚠️ Error processing your payment. Please try syncing manually or contact support.";
-      }
-    } else {
-      // Sync normal sans billing
-      try {
-        const { autoSyncSubscription } = await import("../lib/auto-sync.server");
-        autoSyncResult = await autoSyncSubscription(admin, session.shop);
-        
-        if (autoSyncResult?.success) {
-          console.log(`✅ FORCED sync successful: ${autoSyncResult.message}`);
-          billingStatus = "success";
-          billingMessage = `✅ Subscription synced: You're on the ${autoSyncResult.syncedPlan} plan.`;
-        } else {
-          console.log(`❌ FORCED sync failed: ${autoSyncResult?.error}`);
-        }
-      } catch (error) {
-        console.error("❌ FORCED sync error:", error);
-      }
+    autoSyncResult = {
+      success: true,
+      syncedPlan: planUpgraded,
+      message: `Billing successful: ${planUpgraded} plan activated`
+    };
+  }
+  
+  // Gérer les erreurs de billing
+  if (billingError && !billingStatus) {
+    billingStatus = "error";
+    switch (billingError) {
+      case "missing_params":
+        billingMessage = "❌ Invalid payment information. Please try again.";
+        break;
+      case "upgrade_failed":
+        billingMessage = "⚠️ Payment processed but plan activation failed. Please contact support.";
+        break;
+      case "processing_error":
+        billingMessage = "⚠️ There was an error processing your payment. Please try again.";
+        break;
+      default:
+        billingMessage = "⚠️ There was an issue with your payment. Please try again.";
     }
-  } else {
-    // ✅ Auto-sync normal (intelligent)
+  }
+
+  // Auto-sync intelligent (seulement si pas de billing en cours)
+  if (!billingStatus) {
     try {
       autoSyncResult = await smartAutoSync(admin, session.shop);
       
@@ -317,34 +88,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       console.error("❌ Smart auto-sync error:", error);
     }
   }
-
-  // ✅ Gérer les erreurs de billing
-  const billingError = url.searchParams.get("billing_error");
   
-  if (billingError && !billingStatus) {
-    billingStatus = "error";
-    switch (billingError) {
-      case "declined":
-        billingMessage = "💳 Payment was declined. You can try again or choose a different payment method.";
-        break;
-      case "processing_error":
-        billingMessage = "⚠️ There was an error processing your payment. Please try again.";
-        break;
-      case "charge_not_found":
-        billingMessage = "❌ Payment information not found. Please try again.";
-        break;
-      case "missing_params":
-        billingMessage = "❌ Invalid payment information. Please try again.";
-        break;
-      case "pending":
-        billingMessage = "⏳ Your payment is being processed. Please wait a moment and refresh the page.";
-        break;
-      default:
-        billingMessage = "⚠️ There was an issue with your payment. Please try again.";
-    }
-  }
-  
-  // Récupérer les données d'abonnement (après sync/update)
+  // Récupérer les données d'abonnement (après upgrade ou sync)
   const subscriptionStats = await getSubscriptionStats(session.shop);
   const planData = getPlan(subscriptionStats.planName);
 
@@ -397,11 +142,10 @@ export default function Index() {
       const timer = setTimeout(() => {
         const params = new URLSearchParams(searchParams);
         // Nettoyer les paramètres de billing
-        params.delete("billing_completed");
+        params.delete("billing_success");
         params.delete("billing_error");
         params.delete("plan");
-        params.delete("charge_id");
-        params.delete("needs_manual_sync");
+        params.delete("upgraded");
         // Nettoyer les paramètres de sync
         params.delete("sync");
         params.delete("sync_plan");
@@ -435,18 +179,15 @@ export default function Index() {
             </Banner>
           </Layout.Section>
         )}
-        <BillingReturnHandler />
 
         {/* Bannières de billing */}
         {billingStatus === "success" && billingMessage && (
           <Layout.Section>
             <Banner title="🎉 Payment Successful!" tone="success">
               <Text as="p">{billingMessage}</Text>
-              {autoSyncResult?.success && (
-                <Text as="p" variant="bodySm" tone="subdued">
-                  ✅ Your subscription has been automatically synchronized.
-                </Text>
-              )}
+              <Text as="p" variant="bodySm" tone="subdued">
+                ✅ Your subscription has been automatically updated.
+              </Text>
             </Banner>
           </Layout.Section>
         )}
