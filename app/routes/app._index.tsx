@@ -24,7 +24,96 @@ import {
 import { getSubscriptionStats, updateSubscription } from "../models/subscription.server";
 import { getPlan, formatPriceDisplay, PLANS } from "../lib/plans";
 import { smartAutoSync } from "../lib/auto-sync.server";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+// Interface pour les données de billing
+interface BillingReturnData {
+  billing_completed: string;
+  charge_id: string;
+  needs_manual_sync: string;
+  shop: string;
+  timestamp: number;
+}
+
+// Hook personnalisé pour gérer les données de billing
+function useBillingReturnData() {
+  const [billingData, setBillingData] = useState<BillingReturnData | null>(null);
+  const [isProcessed, setIsProcessed] = useState(false);
+
+  useEffect(() => {
+    // Vérifier s'il y a des données de billing dans sessionStorage
+    const storedData = sessionStorage.getItem('billing_return_data');
+    
+    if (storedData && !isProcessed) {
+      try {
+        const data = JSON.parse(storedData) as BillingReturnData;
+        
+        // Vérifier que les données ne sont pas trop anciennes (max 5 minutes)
+        const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+        
+        if (data.timestamp > fiveMinutesAgo) {
+          console.log('🔄 Found billing return data in sessionStorage:', data);
+          setBillingData(data);
+          
+          // Nettoyer le sessionStorage pour éviter de retraiter
+          sessionStorage.removeItem('billing_return_data');
+          
+          // Marquer comme traité
+          setIsProcessed(true);
+          
+          // Déclencher le traitement du billing côté serveur
+          fetch('/api/process-billing-return', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+          }).then(response => {
+            if (response.ok) {
+              console.log('✅ Billing processed successfully');
+              // Recharger la page pour voir les changements
+              setTimeout(() => {
+                window.location.reload();
+              }, 1000);
+            } else {
+              console.error('❌ Error processing billing');
+            }
+          }).catch(error => {
+            console.error('❌ Network error:', error);
+          });
+        } else {
+          console.log('⏰ Billing data too old, ignoring');
+          sessionStorage.removeItem('billing_return_data');
+        }
+      } catch (error) {
+        console.error('❌ Error parsing billing data:', error);
+        sessionStorage.removeItem('billing_return_data');
+      }
+    }
+  }, [isProcessed]);
+
+  return { billingData, isProcessed };
+}
+
+// Composant à ajouter dans votre JSX
+function BillingReturnHandler() {
+  const { billingData, isProcessed } = useBillingReturnData();
+
+  if (billingData && !isProcessed) {
+    return (
+      <Layout.Section>
+        <Banner title="🎉 Processing Your Payment..." tone="info">
+          <Text as="p">
+            Your payment has been completed successfully! We're updating your subscription now...
+          </Text>
+        </Banner>
+      </Layout.Section>
+    );
+  }
+
+  return null;
+}
+
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -346,6 +435,7 @@ export default function Index() {
             </Banner>
           </Layout.Section>
         )}
+        <BillingReturnHandler />
 
         {/* Bannières de billing */}
         {billingStatus === "success" && billingMessage && (
