@@ -61,20 +61,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
 
-    // ✅ SOLUTION: URLs de retour multiples et robustes
     const protocol = request.headers.get('x-forwarded-proto') || 'https';
-    const host = request.headers.get('x-forwarded-host') || 
-                 request.headers.get('host') || 
-                 process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '') ||
-                 'localhost:3000';
-    
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '');
     const baseUrl = `${protocol}://${host}`;
     
-    // ✅ URL de retour avec tous les paramètres nécessaires
+    // ✅ SOLUTION: Inclure le plan dans le return_url pour éviter les appels GraphQL
     const returnUrl = `${baseUrl}/billing-return?shop=${session.shop}&plan=${selectedPlan}`;
-    
-    console.log(`🔗 Base URL: ${baseUrl}`);
-    console.log(`🔗 Return URL: ${returnUrl}`);
+    console.log(`🔗 Return URL with plan: ${returnUrl}`);
     
     // Create Shopify subscription using App Subscriptions API
     const response = await admin.graphql(`
@@ -96,7 +89,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       variables: {
         name: `${plan.displayName} Plan`,
         returnUrl,
-        test: process.env.NODE_ENV !== "production", // ✅ Automatique selon l'environnement
+        test: true, // Changez en false pour la production
         lineItems: [
           {
             plan: {
@@ -134,7 +127,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
     console.log(`🆔 Subscription ID: ${subscriptionId}`);
 
-    // ✅ Stocker l'ID et le plan sélectionné pour référence future
+    // Stocker l'ID et le plan sélectionné pour référence future
     if (subscriptionId) {
       await updateSubscription(session.shop, {
         subscriptionId: subscriptionId,
