@@ -563,9 +563,9 @@ export default function Pricing() {
         backAction={{ content: "← Dashboard", url: "/app" }}
         primaryAction={
           <ButtonGroup>
-            <Button onClick={() => window.location.reload()}>
+            {/* <Button onClick={() => window.location.reload()}>
               🔄 Refresh
-            </Button>
+            </Button> */}
             <Button disabled>
               📤 Export Changes
             </Button>

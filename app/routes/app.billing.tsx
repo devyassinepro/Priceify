@@ -355,23 +355,6 @@ export default function Billing() {
                     • {process.env.NODE_ENV !== "production" ? "Test mode" : "Live billing"} - charges will {process.env.NODE_ENV !== "production" ? "not" : ""} appear on your Shopify bill
                   </Text>
                 </div>
-                
-                <div style={{ 
-                  marginTop: "1rem", 
-                  padding: "1rem", 
-                  backgroundColor: "#f8f9fa", 
-                  borderRadius: "8px" 
-                }}>
-                  <Text as="h4" variant="headingMd">🔧 Having Issues?</Text>
-                  <Text as="p" variant="bodySm">
-                    If billing doesn't work properly, you can manually sync your subscription:
-                  </Text>
-                  <div style={{ marginTop: "0.5rem" }}>
-                    <Button url="/app/manual-sync" size="micro">
-                      Manual Sync
-                    </Button>
-                  </div>
-                </div>
               </BlockStack>
             </div>
           </Card>

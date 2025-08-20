@@ -379,9 +379,16 @@ export default function Index() {
                       )}
                     
                       {/* Bouton de synchronisation manuelle */}
-                      <Link to="/app/sync-subscription">
+                      {/* <Link to="/app/sync-subscription">
                         <Button size="large">
                           🔄 Sync Subscription
+                        </Button>
+                      </Link> */}
+
+                        {/* Bouton de synchronisation manuelle */}
+                        <Link to="/app/billing">
+                        <Button size="large">
+                           Subscription
                         </Button>
                       </Link>
                     </div>
