@@ -39,9 +39,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
 
     console.log(`🎉 Subscription upgraded successfully to ${plan.displayName}`);
-    
-    // Redirection vers l'app avec confirmation de succès
-    // return redirect(`/app?billing_success=1&plan=${planName}&upgraded=1`);
 
     const host = Buffer.from(`${shop}/admin`).toString('base64');
     const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&charge_id=${chargeId}&needs_manual_sync=1`;
