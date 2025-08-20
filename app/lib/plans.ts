@@ -1,5 +1,3 @@
-// app/lib/plans.ts - Configuration mise à jour pour le Shopify App Store
-
 export interface Plan {
   name: string;
   displayName: string;
@@ -35,11 +33,11 @@ export const PLANS: Record<string, Plan> = {
     displayName: "Starter",
     price: 4.99,
     currency: "USD",
-    usageLimit: 100,
+    usageLimit: 500,
     billingInterval: "EVERY_30_DAYS",
     trialDays: 7, // 7 jours d'essai gratuit
     features: [
-      "Modify prices for up to 100 unique products per month",
+      "Modify prices for up to 500 unique products per month",
       "Unlimited price changes per product",
       "All modification types and filters",
       "Complete modification history",
@@ -49,16 +47,16 @@ export const PLANS: Record<string, Plan> = {
     ]
   },
   
-  standard: {
+  pro: {
     name: "standard",
     displayName: "Standard",
     price: 9.99,
     currency: "USD",
-    usageLimit: 500,
+    usageLimit: 9999999, // Unlimited
     billingInterval: "EVERY_30_DAYS",
-    trialDays: 14, // 14 jours d'essai gratuit
+    trialDays: 7, // 7 jours d'essai gratuit
     features: [
-      "Modify prices for up to 500 unique products per month",
+      "Modify prices for unlimited products",
       "Unlimited price changes per product",
       "All modification types and bulk operations",
       "Complete modification history with filters",
@@ -69,28 +67,6 @@ export const PLANS: Record<string, Plan> = {
       "Scheduled price updates"
     ],
     recommended: true
-  },
-  
-  pro: {
-    name: "pro",
-    displayName: "Professional", 
-    price: 19.99,
-    currency: "USD",
-    usageLimit: 99999, // Unlimited
-    billingInterval: "EVERY_30_DAYS",
-    trialDays: 14,
-    features: [
-      "Modify prices for unlimited products",
-      "Unlimited price changes and bulk operations",
-      "Advanced analytics and profit insights", 
-      "API access for custom integrations",
-      "Priority support (12h response time)",
-      "Custom pricing rules and automation",
-      "White-label reports and data export",
-      "Advanced competitor price tracking",
-      "Multi-store management",
-      "Custom webhooks and notifications"
-    ]
   }
 };
 
