@@ -5,6 +5,7 @@ import { PLANS } from "../lib/plans";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
     const url = new URL(request.url);
+    const chargeId = url.searchParams.get("charge_id");
     const shop = url.searchParams.get("shop");
     const planName = url.searchParams.get("plan");
 
@@ -40,7 +41,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.log(`🎉 Subscription upgraded successfully to ${plan.displayName}`);
     
     // Redirection vers l'app avec confirmation de succès
-    return redirect(`/app?billing_success=1&plan=${planName}&upgraded=1`);
+    // return redirect(`/app?billing_success=1&plan=${planName}&upgraded=1`);
+
+    const host = Buffer.from(`${shop}/admin`).toString('base64');
+    const redirectUrl = `/app?host=${host}&shop=${shop}&billing_completed=1&charge_id=${chargeId}&needs_manual_sync=1`;
+        
+    console.log(`🔗 Auth failed, redirecting to app for manual processing: ${redirectUrl}`);
+    return redirect(redirectUrl);
     
   } catch (error: any) {
     console.error("💥 Error in billing return:", error);
