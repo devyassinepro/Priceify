@@ -1,11 +1,11 @@
-// app/routes/app.billing.tsx - Version améliorée avec URLs de retour robustes
+// app/routes/app.billing.tsx - Enhanced with trial support
 import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import { Card, Layout, Page, Text, Button, Grid, Badge, List, Banner, BlockStack } from "@shopify/polaris";
 import { getOrCreateSubscription, updateSubscription } from "../models/subscription.server";
-import { PLANS, formatPriceDisplay } from "../lib/plans";
+import { PLANS, formatPriceDisplay, isEligibleForTrial, getPriceWithTrial } from "../lib/plans";
 
 interface ActionResult {
   success?: string;
@@ -59,15 +59,43 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json<ActionResult>({ error: "You're already on the free plan" });
     }
 
-    console.log(`🔄 Creating billing charge for ${session.shop}: ${plan.displayName}`);
+    console.log(`🔄 Creating subscription for ${session.shop}: ${plan.displayName}`);
 
     const protocol = request.headers.get('x-forwarded-proto') || 'https';
     const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '');
     const baseUrl = `${protocol}://${host}`;
     
-    // ✅ SOLUTION: Inclure le plan dans le return_url pour éviter les appels GraphQL
     const returnUrl = `${baseUrl}/billing-return?shop=${session.shop}&plan=${selectedPlan}`;
     console.log(`🔗 Return URL with plan: ${returnUrl}`);
+    
+    // ✅ CHECK FOR TRIAL ELIGIBILITY
+    const subscription = await getOrCreateSubscription(session.shop);
+    const trialEligible = isEligibleForTrial(subscription, selectedPlan);
+    
+    console.log(`🎁 Trial eligibility for ${selectedPlan}:`, trialEligible);
+
+    // Build GraphQL variables with trial support
+    const variables: any = {
+      name: `${plan.displayName} Plan`,
+      returnUrl,
+      test: process.env.NODE_ENV !== "production",
+      lineItems: [
+        {
+          plan: {
+            appRecurringPricingDetails: {
+              price: { amount: plan.price, currencyCode: "USD" },
+              interval: "EVERY_30_DAYS"
+            }
+          }
+        }
+      ]
+    };
+
+    // ✅ ADD TRIAL DAYS IF ELIGIBLE
+    if (trialEligible && plan.trialDays && plan.trialDays > 0) {
+      variables.lineItems[0].plan.appRecurringPricingDetails.trialDays = plan.trialDays;
+      console.log(`🎁 Adding ${plan.trialDays} trial days to subscription`);
+    }
     
     // Create Shopify subscription using App Subscriptions API
     const response = await admin.graphql(`
@@ -77,6 +105,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             id
             name
             status
+            currentPeriodEnd
+            ${trialEligible && plan.trialDays ? `
+            trialDays
+            ` : ''}
           }
           confirmationUrl
           userErrors {
@@ -85,23 +117,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           }
         }
       }
-    `, {
-      variables: {
-        name: `${plan.displayName} Plan`,
-        returnUrl,
-        test: true, // Changez en false pour la production
-        lineItems: [
-          {
-            plan: {
-              appRecurringPricingDetails: {
-                price: { amount: plan.price, currencyCode: "USD" },
-                interval: "EVERY_30_DAYS"
-              }
-            }
-          }
-        ]
-      }
-    });
+    `, { variables });
 
     const result = await response.json();
     console.log('GraphQL Response:', JSON.stringify(result, null, 2));
@@ -123,15 +139,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     }
 
-    console.log(`✅ Billing charge created successfully`);
+    console.log(`✅ Subscription created successfully`);
     console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
     console.log(`🆔 Subscription ID: ${subscriptionId}`);
 
-    // Stocker l'ID et le plan sélectionné pour référence future
+    // Store the ID and plan for reference
     if (subscriptionId) {
       await updateSubscription(session.shop, {
         subscriptionId: subscriptionId,
-        // Note: ne pas changer le plan ici, attendre la confirmation de paiement
+        // Don't change the plan here, wait for payment confirmation
       });
     }
 
@@ -159,7 +175,6 @@ export default function Billing() {
   React.useEffect(() => {
     if (actionData?.confirmationUrl) {
       console.log('🔗 Redirecting to:', actionData.confirmationUrl);
-      // Use window.top to ensure we break out of iframe if embedded
       if (window.top) {
         window.top.location.href = actionData.confirmationUrl;
       } else {
@@ -233,7 +248,7 @@ export default function Billing() {
                       {PLANS[subscription.planName as keyof typeof PLANS]?.displayName || subscription.planName} Plan
                     </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
-                      {subscription.usageCount} / {subscription.usageLimit} products used this month
+                      {subscription.usageCount} / {subscription.usageLimit === 9999999 ? "unlimited" : subscription.usageLimit} products used this month
                     </Text>
                   </div>
                   <Badge tone={subscription.planName === 'free' ? 'info' : 'success'}>
@@ -251,6 +266,8 @@ export default function Billing() {
             {plans.map((plan: any) => {
               const isCurrentPlan = subscription.planName === plan.name;
               const canDowngrade = plan.name === 'free' && subscription.planName !== 'free';
+              const trialEligible = isEligibleForTrial(subscription, plan.name);
+              const priceDisplay = getPriceWithTrial(plan, trialEligible);
               
               return (
                 <Grid.Cell key={plan.name} columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}>
@@ -268,17 +285,30 @@ export default function Billing() {
                           <Text as="h3" variant="headingLg">{plan.displayName}</Text>
                           {plan.recommended && <Badge tone="success">Most Popular</Badge>}
                           {isCurrentPlan && <Badge tone="info">Current Plan</Badge>}
+                          {/* ✅ SHOW TRIAL BADGE */}
+                          {trialEligible && priceDisplay.trialInfo && (
+                            <div style={{ marginTop: "0.5rem" }}>
+                              🎁 {priceDisplay.trialInfo}
+                            </div>
+                          )}
                         </div>
 
                         <div style={{ marginBottom: "2rem" }}>
                           <Text as="p" variant="headingXl" fontWeight="bold">
-                            {formatPriceDisplay(plan.price)}
+                            {priceDisplay.displayPrice}
                           </Text>
+                          {/* ✅ SHOW TRIAL INFO */}
+                          {trialEligible && priceDisplay.trialInfo && (
+                            <Text as="p" variant="bodySm" tone="subdued">
+                              {priceDisplay.trialInfo}, then {formatPriceDisplay(plan.price)}
+                            </Text>
+                          )}
                         </div>
 
                         <div style={{ marginBottom: "2rem" }}>
                           <Text as="p" variant="bodyLg" fontWeight="semibold">
-                            {plan.usageLimit === 99999 ? "Unlimited" : plan.usageLimit} products/month
+                            {/* ✅ FIX UNLIMITED DISPLAY */}
+                            {plan.usageLimit === 9999999 ? "Unlimited" : plan.usageLimit} products/month
                           </Text>
                         </div>
 
@@ -322,7 +352,7 @@ export default function Billing() {
                           >
                             {plan.name === "free" 
                               ? (canDowngrade ? "Downgrade to Free" : "Free Plan") 
-                              : `Upgrade to ${plan.displayName}`
+                              : `${trialEligible && priceDisplay.trialInfo ? "Start Free Trial" : `Upgrade to ${plan.displayName}`}`
                             }
                           </Button>
                         )}
@@ -350,6 +380,9 @@ export default function Billing() {
                   </Text>
                   <Text as="p" variant="bodySm">
                     • Usage quotas reset on your billing anniversary
+                  </Text>
+                  <Text as="p" variant="bodySm">
+                    • Free trials are available for new users on paid plans
                   </Text>
                   <Text as="p" variant="bodySm">
                     • {process.env.NODE_ENV !== "production" ? "Test mode" : "Live billing"} - charges will {process.env.NODE_ENV !== "production" ? "not" : ""} appear on your Shopify bill

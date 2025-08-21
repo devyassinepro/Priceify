@@ -1,3 +1,4 @@
+// app/lib/plans.ts - Enhanced with better trial support and unlimited display
 export interface Plan {
   name: string;
   displayName: string;
@@ -35,7 +36,7 @@ export const PLANS: Record<string, Plan> = {
     currency: "USD",
     usageLimit: 500,
     billingInterval: "EVERY_30_DAYS",
-    trialDays: 7, // 7 jours d'essai gratuit
+    trialDays: 7, // 7-day free trial
     features: [
       "Modify prices for up to 500 unique products per month",
       "Unlimited price changes per product",
@@ -47,14 +48,14 @@ export const PLANS: Record<string, Plan> = {
     ]
   },
   
-  pro: {
+  standard: {
     name: "standard",
     displayName: "Standard",
     price: 9.99,
     currency: "USD",
-    usageLimit: 9999999, // Unlimited
+    usageLimit: 9999999, // Large number for unlimited
     billingInterval: "EVERY_30_DAYS",
-    trialDays: 7, // 7 jours d'essai gratuit
+    trialDays: 7, // 7-day free trial
     features: [
       "Modify prices for unlimited products",
       "Unlimited price changes per product",
@@ -70,49 +71,43 @@ export const PLANS: Record<string, Plan> = {
   }
 };
 
-// Fonction pour obtenir un plan
+// Function to get a plan
 export function getPlan(planName: string): Plan {
   return PLANS[planName] || PLANS.free;
 }
 
-// Vérifier les permissions de fonctionnalités
+// Check feature permissions
 export function canUseFeature(subscription: any, feature: string): boolean {
   const plan = getPlan(subscription?.planName || 'free');
   
-  // Vérifier les limites de produits
+  // Check product limits
   const uniqueProductsModified = (subscription?.uniqueProductsModified as string[])?.length || 0;
-  if (uniqueProductsModified >= plan.usageLimit) {
+  if (uniqueProductsModified >= plan.usageLimit && plan.usageLimit !== 9999999) {
     return false;
   }
   
-  // Vérifications spécifiques aux fonctionnalités
+  // Feature-specific checks
   switch (feature) {
     case 'advanced_filters':
       return plan.name !== 'free';
     case 'csv_export':
-      return ['starter', 'standard', 'pro'].includes(plan.name);
+      return ['starter', 'standard'].includes(plan.name);
     case 'bulk_operations':
-      return ['standard', 'pro'].includes(plan.name);
-    case 'api_access':
-      return plan.name === 'pro';
+      return ['standard'].includes(plan.name);
     case 'unlimited_products':
-      return plan.name === 'pro';
+      return plan.usageLimit === 9999999;
     case 'priority_support':
       return plan.name !== 'free';
     case 'analytics':
-      return ['standard', 'pro'].includes(plan.name);
-    case 'automation':
-      return plan.name === 'pro';
+      return ['standard'].includes(plan.name);
     case 'scheduled_updates':
-      return ['standard', 'pro'].includes(plan.name);
-    case 'multi_store':
-      return plan.name === 'pro';
+      return ['standard'].includes(plan.name);
     default:
       return true;
   }
 }
 
-// Formater l'affichage des prix
+// Enhanced format display for unlimited plans
 export function formatPriceDisplay(price: number, currency: string = "USD"): string {
   if (price === 0) return "Free";
   
@@ -125,7 +120,23 @@ export function formatPriceDisplay(price: number, currency: string = "USD"): str
   return `${formatter.format(price)}/month`;
 }
 
-// Obtenir les recommandations d'upgrade
+// ✅ NEW: Format usage limit display
+export function formatUsageLimit(usageLimit: number): string {
+  if (usageLimit === 9999999) {
+    return "unlimited";
+  }
+  return usageLimit.toString();
+}
+
+// ✅ NEW: Format usage display for UI
+export function formatUsageDisplay(current: number, limit: number): string {
+  if (limit === 9999999) {
+    return `${current} / unlimited`;
+  }
+  return `${current} / ${limit}`;
+}
+
+// Get upgrade recommendations
 export function getUpgradeRecommendation(subscription: any): {
   shouldUpgrade: boolean;
   reason: string;
@@ -133,12 +144,12 @@ export function getUpgradeRecommendation(subscription: any): {
 } {
   const currentPlan = getPlan(subscription?.planName || 'free');
   const uniqueProductsModified = (subscription?.uniqueProductsModified as string[])?.length || 0;
-  const usagePercentage = (uniqueProductsModified / subscription.usageLimit) * 100;
+  const usagePercentage = currentPlan.usageLimit === 9999999 ? 0 : (uniqueProductsModified / currentPlan.usageLimit) * 100;
 
   if (currentPlan.name === 'free' && usagePercentage > 80) {
     return {
       shouldUpgrade: true,
-      reason: `You've modified ${uniqueProductsModified} of ${subscription.usageLimit} allowed products this month. Upgrade to modify more products without interruption.`,
+      reason: `You've modified ${uniqueProductsModified} of ${currentPlan.usageLimit} allowed products this month. Upgrade to modify more products without interruption.`,
       recommendedPlan: 'starter'
     };
   }
@@ -146,16 +157,8 @@ export function getUpgradeRecommendation(subscription: any): {
   if (currentPlan.name === 'starter' && usagePercentage > 85) {
     return {
       shouldUpgrade: true,
-      reason: `You're approaching your limit. Upgrade to Standard for 500 products and advanced features.`,
+      reason: `You're approaching your limit. Upgrade to Standard for unlimited products and advanced features.`,
       recommendedPlan: 'standard'
-    };
-  }
-
-  if (currentPlan.name === 'standard' && usagePercentage > 90) {
-    return {
-      shouldUpgrade: true,
-      reason: `You're a power user! Upgrade to Pro for unlimited product modifications and advanced features.`,
-      recommendedPlan: 'pro'
     };
   }
 
@@ -166,7 +169,52 @@ export function getUpgradeRecommendation(subscription: any): {
   };
 }
 
-// Calculer l'impact sur le quota pour les opérations bulk
+// ✅ ENHANCED: Better trial eligibility check
+export function isEligibleForTrial(subscription: any, planName: string): boolean {
+  const plan = getPlan(planName);
+  
+  // No trial for free plan
+  if (plan.name === 'free') return false;
+  
+  // No trial defined for this plan
+  if (!plan.trialDays) return false;
+  
+  // Check if user has never had a paid plan
+  const hasHadPaidPlan = subscription?.planName !== 'free' || 
+                        subscription?.subscriptionId !== null;
+
+  if (hasHadPaidPlan) return false;
+  
+  // Check if usage is low (new users)
+  const usageCount = subscription?.usageCount || 0;
+  if (usageCount > 10) return false; // More than 10 products modified = not new
+  
+  // Check account age (if created very recently, likely eligible)
+  const createdAt = new Date(subscription?.createdAt || Date.now());
+  const daysSinceCreation = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+  
+  // Eligible if account is less than 30 days old and meets other criteria
+  return daysSinceCreation <= 30;
+}
+
+// ✅ ENHANCED: Get price display with trial information
+export function getPriceWithTrial(plan: Plan, isEligible: boolean): {
+  displayPrice: string;
+  trialInfo?: string;
+} {
+  const basePrice = formatPriceDisplay(plan.price);
+  
+  if (isEligible && plan.trialDays) {
+    return {
+      displayPrice: "Free Trial",
+      trialInfo: `${plan.trialDays} days free`
+    };
+  }
+  
+  return { displayPrice: basePrice };
+}
+
+// Calculate product usage impact
 export function estimateProductUsage(
   currentProductsModified: string[], 
   newProductIds: string[], 
@@ -180,15 +228,41 @@ export function estimateProductUsage(
   const newProducts = newProductIds.filter(id => !currentProductsModified.includes(id));
   const totalAfter = currentProductsModified.length + newProducts.length;
   
+  // ✅ Handle unlimited plans
+  const wouldExceed = usageLimit === 9999999 ? false : totalAfter > usageLimit;
+  const remaining = usageLimit === 9999999 ? 9999999 : Math.max(0, usageLimit - totalAfter);
+  
   return {
-    wouldExceed: totalAfter > usageLimit,
+    wouldExceed,
     newProductsCount: newProducts.length,
     totalAfter,
-    remaining: Math.max(0, usageLimit - totalAfter)
+    remaining
   };
 }
 
-// Calculer les économies pour les plans annuels (si vous voulez les ajouter)
+// ✅ NEW: Check if plan has unlimited products
+export function hasUnlimitedProducts(planName: string): boolean {
+  const plan = getPlan(planName);
+  return plan.usageLimit === 9999999;
+}
+
+// ✅ NEW: Get plan limits for display
+export function getPlanLimits(planName: string): {
+  usageLimit: number;
+  displayLimit: string;
+  isUnlimited: boolean;
+} {
+  const plan = getPlan(planName);
+  const isUnlimited = plan.usageLimit === 9999999;
+  
+  return {
+    usageLimit: plan.usageLimit,
+    displayLimit: isUnlimited ? "unlimited" : plan.usageLimit.toString(),
+    isUnlimited
+  };
+}
+
+// Get annual discount calculations (for future use)
 export function getAnnualDiscount(plan: Plan): {
   monthlyPrice: number;
   annualPrice: number;
@@ -196,7 +270,7 @@ export function getAnnualDiscount(plan: Plan): {
   savingsPercentage: number;
 } {
   const monthlyPrice = plan.price;
-  const annualPrice = monthlyPrice * 10; // 2 mois gratuits
+  const annualPrice = monthlyPrice * 10; // 2 months free
   const savings = monthlyPrice * 2;
   const savingsPercentage = (savings / (monthlyPrice * 12)) * 100;
   
@@ -206,32 +280,4 @@ export function getAnnualDiscount(plan: Plan): {
     savings,
     savingsPercentage: Math.round(savingsPercentage)
   };
-}
-
-// Vérifier si un plan est éligible pour un essai gratuit
-export function isEligibleForTrial(subscription: any, planName: string): boolean {
-  const plan = getPlan(planName);
-  
-  // Pas d'essai pour le plan gratuit
-  if (plan.name === 'free') return false;
-  
-  // Vérifier si l'utilisateur n'a jamais eu d'abonnement payant
-  return subscription?.planName === 'free' && subscription?.usageCount < 5;
-}
-
-// Obtenir le prix avec essai gratuit
-export function getPriceWithTrial(plan: Plan, isEligible: boolean): {
-  displayPrice: string;
-  trialInfo?: string;
-} {
-  const basePrice = formatPriceDisplay(plan.price);
-  
-  if (isEligible && plan.trialDays) {
-    return {
-      displayPrice: basePrice,
-      trialInfo: `${plan.trialDays}-day free trial`
-    };
-  }
-  
-  return { displayPrice: basePrice };
 }

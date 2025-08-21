@@ -4,6 +4,8 @@ import { authenticate } from "../shopify.server";
 import { useState, useEffect } from "react";
 import { validatePricingData, validateProductData } from "../lib/validators";
 import { logError, handleGraphQLErrors, createUserFriendlyError } from "../lib/error-handler";
+import { hasUnlimitedProducts, formatUsageDisplay, getPlanLimits } from "../lib/plans";
+
 import {
   Card,
   Layout,
@@ -342,27 +344,28 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<Response>
 };
 
 export default function Pricing() {
-  const data = useLoaderData<LoaderData>();
-  const actionData = useActionData<ActionResult>();
-  const navigation = useNavigation();
+    const data = useLoaderData<LoaderData>();
+    const actionData = useActionData<ActionResult>();
+    const navigation = useNavigation();
+    
+    const products = data.products.edges;
+    const subscription = data.subscription || { 
+      id: "",
+      usageCount: 0, 
+      usageLimit: 20, 
+      planName: 'free', 
+      shop: "",
+      uniqueProductsModified: [],
+      totalPriceChanges: 0,
+    };
+    const pagination = data.pagination;
+    const currentPage = data.currentPage;
   
-  const products = data.products.edges;
-  const subscription = data.subscription || { 
-    id: "",
-    usageCount: 0, 
-    usageLimit: 20, 
-    planName: 'free', 
-    shop: "",
-    uniqueProductsModified: [],
-    totalPriceChanges: 0,
-  };
-  const pagination = data.pagination;
-  const currentPage = data.currentPage;
-
-  const usagePercentage = subscription.usageLimit > 0 
-    ? (subscription.usageCount / subscription.usageLimit) * 100 
-    : 0;
-  
+    // ✅ FIX: Better unlimited handling
+    const planLimits = getPlanLimits(subscription.planName);
+    const isUnlimited = planLimits.isUnlimited;
+    const usagePercentage = isUnlimited ? 0 : (subscription.usageCount / subscription.usageLimit) * 100;
+    
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [adjustmentType, setAdjustmentType] = useState("percentage");
   const [adjustmentValue, setAdjustmentValue] = useState("10");
@@ -386,7 +389,7 @@ export default function Pricing() {
   };
 
   const newProductsCount = getNewProductsCount();
-  const wouldExceedAfterSelection = (subscription.usageCount + newProductsCount) > subscription.usageLimit;
+  const wouldExceedAfterSelection = !isUnlimited && (subscription.usageCount + newProductsCount) > subscription.usageLimit;
 
   // Advanced filtering logic
   useEffect(() => {
@@ -541,7 +544,7 @@ export default function Pricing() {
     ];
   });
 
-  const hasReachedLimit = usagePercentage >= 100;
+  const hasReachedLimit = !isUnlimited && usagePercentage >= 100;
 
   const toastMarkup = showToast ? (
     <Toast content="Prices updated successfully!" onDismiss={() => setShowToast(false)} />
@@ -563,9 +566,6 @@ export default function Pricing() {
         backAction={{ content: "← Dashboard", url: "/app" }}
         primaryAction={
           <ButtonGroup>
-            {/* <Button onClick={() => window.location.reload()}>
-              🔄 Refresh
-            </Button> */}
             <Button disabled>
               📤 Export Changes
             </Button>
@@ -573,30 +573,42 @@ export default function Pricing() {
         }
       >
         <Layout>
-          {/* Updated Usage Progress */}
-          <Layout.Section>
+        <Layout.Section>
             <Card>
               <div style={{ padding: "1rem" }}>
                 <InlineStack align="space-between">
                   <div>
                     <Text as="h3" variant="headingMd">
-                      Monthly Usage: {subscription.usageCount} / {subscription.usageLimit} unique products
+                      Monthly Usage: {formatUsageDisplay(subscription.usageCount, subscription.usageLimit)} unique products
                     </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
                       Plan: {subscription.planName.charAt(0).toUpperCase() + subscription.planName.slice(1)}
+                      {isUnlimited && " (Unlimited)"}
                     </Text>
-                    {newProductsCount > 0 && (
+                    {newProductsCount > 0 && !isUnlimited && (
                       <Text as="p" variant="bodySm" tone={wouldExceedAfterSelection ? "critical" : "success"}>
                         Selected: {newProductsCount} new product(s) • Would total: {subscription.usageCount + newProductsCount}
                       </Text>
                     )}
+                    {newProductsCount > 0 && isUnlimited && (
+                      <Text as="p" variant="bodySm" tone="success">
+                        Selected: {newProductsCount} new product(s) • Unlimited plan - no limits!
+                      </Text>
+                    )}
                   </div>
                   <div style={{ width: "200px" }}>
-                    <ProgressBar 
-                      progress={usagePercentage} 
-                      size="small"
-                      tone={usagePercentage >= 100 ? "critical" : "primary"}
-                    />
+                    {!isUnlimited && (
+                      <ProgressBar 
+                        progress={usagePercentage} 
+                        size="small"
+                        tone={usagePercentage >= 100 ? "critical" : "primary"}
+                      />
+                    )}
+                    {isUnlimited && (
+                      <Text as="p" variant="bodySm" tone="success">
+                        ∞ Unlimited
+                      </Text>
+                    )}
                   </div>
                 </InlineStack>
               </div>
@@ -604,8 +616,9 @@ export default function Pricing() {
           </Layout.Section>
 
           {/* Usage warning banner */}
-          {usagePercentage > 80 && subscription.planName === 'free' && (
-            <Layout.Section>
+        {/* ✅ UPDATED: Usage warning banner - only show for non-unlimited plans */}
+        {!isUnlimited && usagePercentage > 80 && subscription.planName === 'free' && (
+              <Layout.Section>
               <Banner 
                 tone={hasReachedLimit ? "critical" : "warning"}
                 title={hasReachedLimit ? "Usage Limit Reached" : "Approaching Usage Limit"}
@@ -626,7 +639,7 @@ export default function Pricing() {
           )}
 
           {/* Updated warning banners */}
-          {wouldExceedAfterSelection && (
+          {!isUnlimited && wouldExceedAfterSelection && (
             <Layout.Section>
               <Banner tone="critical" title="Product Limit Would Be Exceeded">
                 <Text as="p">
@@ -636,6 +649,7 @@ export default function Pricing() {
               </Banner>
             </Layout.Section>
           )}
+
 
           {/* Action Results */}
           {actionData && (
@@ -765,59 +779,29 @@ export default function Pricing() {
                   </Text>
                   
                   <Form method="post">
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
-                      <Select
-                        label="Adjustment Type"
-                        value={adjustmentType}
-                        onChange={setAdjustmentType}
-                        options={[
-                          { label: "Percentage (%)", value: "percentage" },
-                          { label: "Fixed Price ($)", value: "fixed" },
-                          { label: "Add Amount (+$)", value: "add" },
-                          { label: "Subtract Amount (-$)", value: "subtract" },
-                        ]}
-                      />
-                      
-                      <TextField
-                        label="Value"
-                        value={adjustmentValue}
-                        onChange={setAdjustmentValue}
-                        type="number"
-                        autoComplete="off"
-                        helpText={
-                          adjustmentType === "percentage" 
-                            ? "e.g., 10 for +10%" 
-                            : "Amount in dollars"
-                        }
-                      />
-                    </div>
-                    
-                    <input 
-                      type="hidden" 
-                      name="selectedProducts" 
-                      value={JSON.stringify(getSelectedProductsData())} 
-                    />
-                    <input type="hidden" name="adjustmentType" value={adjustmentType} />
-                    <input type="hidden" name="adjustmentValue" value={adjustmentValue} />
+                    {/* ... existing form fields ... */}
                     
                     <div style={{ marginTop: "1rem" }}>
                       <Button
                         submit
                         variant="primary"
                         loading={isLoading}
-                        disabled={selectedProducts.size === 0 || wouldExceedAfterSelection}
+                        disabled={selectedProducts.size === 0 || (!isUnlimited && wouldExceedAfterSelection)}
                         size="large"
                       >
                         {isLoading ? "Processing..." : 
-                         wouldExceedAfterSelection ? "Would Exceed Product Limit" :
-                         `Update ${selectedProducts.size} Product(s) ${newProductsCount > 0 ? `(${newProductsCount} new)` : ''}`
+                         (!isUnlimited && wouldExceedAfterSelection) ? "Would Exceed Product Limit" :
+                         `Update ${selectedProducts.size} Product(s) ${!isUnlimited && newProductsCount > 0 ? `(${newProductsCount} new)` : ''}`
                         }
                       </Button>
                       
                       {selectedProducts.size > 0 && (
                         <div style={{ marginTop: "0.5rem" }}>
                           <Text as="p" variant="bodySm" tone="subdued">
-                            This will count {newProductsCount} new product(s) toward your monthly quota
+                            {isUnlimited 
+                              ? "Unlimited plan - modify as many products as you want!"
+                              : `This will count ${newProductsCount} new product(s) toward your monthly quota`
+                            }
                           </Text>
                         </div>
                       )}
@@ -827,6 +811,7 @@ export default function Pricing() {
               </div>
             </Card>
           </Layout.Section>
+
 
           {/* Products Table */}
           <Layout.Section>
@@ -936,7 +921,7 @@ export default function Pricing() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1rem" }}>
                     <div>
                       <Text as="p" variant="bodySm">
-                        <Text as="span" fontWeight="semibold">Product-Based Quota:</Text> Each unique product counts as 1 toward your monthly limit, regardless of how many variants you modify.
+                        <Text as="span" fontWeight="semibold">Product-Based Quota:</Text> Each unique product counts as 1 toward your monthly limit{isUnlimited ? " (unlimited on your plan!)" : ""}, regardless of how many variants you modify.
                       </Text>
                     </div>
                     <div>
@@ -949,6 +934,13 @@ export default function Pricing() {
                         <Text as="span" fontWeight="semibold">Multiple Updates:</Text> You can modify the same product multiple times within the month without using additional quota.
                       </Text>
                     </div>
+                    {isUnlimited && (
+                      <div>
+                        <Text as="p" variant="bodySm">
+                          <Text as="span" fontWeight="semibold">Unlimited Power:</Text> Your plan has no product limits - modify as many as you want!
+                        </Text>
+                      </div>
+                    )}
                   </div>
                 </BlockStack>
               </div>

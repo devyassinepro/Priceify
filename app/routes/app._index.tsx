@@ -1,3 +1,4 @@
+// app/routes/app._index.tsx - Updated with unlimited display fixes
 import { json, LoaderFunctionArgs, redirect } from "@remix-run/node";
 import { useLoaderData, Link, useSearchParams } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
@@ -22,7 +23,7 @@ import {
   PlanIcon,
 } from "@shopify/polaris-icons";
 import { getSubscriptionStats } from "../models/subscription.server";
-import { getPlan, formatPriceDisplay, PLANS } from "../lib/plans";
+import { getPlan, formatPriceDisplay, PLANS, formatUsageDisplay, hasUnlimitedProducts } from "../lib/plans";
 import { smartAutoSync } from "../lib/auto-sync.server";
 import { useEffect } from "react";
 
@@ -33,7 +34,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   console.log(`🏠 App index loaded for ${session.shop}`);
   console.log(`🔗 Full URL: ${url.toString()}`);
 
-  // ✅ SIMPLE: Détecter les paramètres de succès billing
+  // Detect billing success parameters
   const billingSuccess = url.searchParams.get("billing_success");
   const planUpgraded = url.searchParams.get("plan");
   const upgraded = url.searchParams.get("upgraded");
@@ -43,7 +44,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let billingStatus = null;
   let autoSyncResult = null;
   
-  // Gérer le succès billing
+  // Handle billing success
   if (billingSuccess === "1" && planUpgraded) {
     billingStatus = "success";
     billingMessage = `🎉 Payment successful! You're now on the ${PLANS[planUpgraded as keyof typeof PLANS]?.displayName || planUpgraded} plan.`;
@@ -56,7 +57,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   }
   
-  // Gérer les erreurs de billing
+  // Handle billing errors
   if (billingError && !billingStatus) {
     billingStatus = "error";
     switch (billingError) {
@@ -74,7 +75,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  // Auto-sync intelligent (seulement si pas de billing en cours)
+  // Auto-sync intelligent (only if no billing in progress)
   if (!billingStatus) {
     try {
       autoSyncResult = await smartAutoSync(admin, session.shop);
@@ -89,11 +90,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
   
-  // Récupérer les données d'abonnement (après upgrade ou sync)
+  // Get subscription data (after upgrade or sync)
   const subscriptionStats = await getSubscriptionStats(session.shop);
   const planData = getPlan(subscriptionStats.planName);
 
-  // Paramètres de synchronisation existants (garder pour compatibilité)
+  // Existing sync parameters (keep for compatibility)
   const syncStatus = url.searchParams.get("sync");
   const syncPlan = url.searchParams.get("sync_plan");
   const syncMessage = url.searchParams.get("message");
@@ -102,8 +103,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     shop: session.shop,
     subscription: subscriptionStats,
     plan: planData,
-    usagePercentage: (subscriptionStats.usageCount / subscriptionStats.usageLimit) * 100,
-    remainingProducts: subscriptionStats.usageLimit - subscriptionStats.usageCount,
+    usagePercentage: hasUnlimitedProducts(subscriptionStats.planName) ? 0 : (subscriptionStats.usageCount / subscriptionStats.usageLimit) * 100,
+    remainingProducts: hasUnlimitedProducts(subscriptionStats.planName) ? "unlimited" : subscriptionStats.usageLimit - subscriptionStats.usageCount,
     uniqueProductCount: subscriptionStats.uniqueProductCount || 0,
     billingStatus,
     billingMessage,
@@ -133,26 +134,27 @@ export default function Index() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const isNewUser = subscription.usageCount === 0;
-  const isNearLimit = usagePercentage > 80;
-  const hasReachedLimit = usagePercentage >= 100;
+  const isUnlimited = hasUnlimitedProducts(subscription.planName);
+  const isNearLimit = !isUnlimited && usagePercentage > 80;
+  const hasReachedLimit = !isUnlimited && usagePercentage >= 100;
 
-  // Nettoyer les paramètres après affichage
+  // Clean up parameters after display
   useEffect(() => {
     if (billingStatus || syncStatus || autoSyncResult) {
       const timer = setTimeout(() => {
         const params = new URLSearchParams(searchParams);
-        // Nettoyer les paramètres de billing
+        // Clean billing parameters
         params.delete("billing_success");
         params.delete("billing_error");
         params.delete("plan");
         params.delete("upgraded");
-        // Nettoyer les paramètres de sync
+        // Clean sync parameters
         params.delete("sync");
         params.delete("sync_plan");
         params.delete("message");
         params.delete("sync_needed");
         params.delete("trigger_sync");
-        // Nettoyer les paramètres embedded
+        // Clean embedded parameters
         params.delete("host");
         params.delete("shop");
         params.delete("hmac");
@@ -180,7 +182,7 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Bannières de billing */}
+        {/* Billing banners */}
         {billingStatus === "success" && billingMessage && (
           <Layout.Section>
             <Banner title="🎉 Payment Successful!" tone="success">
@@ -210,13 +212,13 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Bannières de synchronisation */}
+        {/* Sync banners */}
         {syncStatus === "success" && (
           <Layout.Section>
             <Banner title="🎉 Subscription Updated!" tone="success">
               <Text as="p">
                 Your subscription has been successfully updated to the {syncPlan} plan. 
-                You can now modify up to {plan.usageLimit === 99999 ? 'unlimited' : plan.usageLimit} products per month.
+                You can now modify up to {hasUnlimitedProducts(syncPlan || 'free') ? 'unlimited' : plan.usageLimit} products per month.
               </Text>
             </Banner>
           </Layout.Section>
@@ -243,7 +245,7 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Avertissements d'utilisation */}
+        {/* Usage warnings */}
         {isNearLimit && !billingStatus && !syncStatus && (
           <Layout.Section>
             <Banner 
@@ -265,7 +267,7 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Statistiques rapides */}
+        {/* Quick statistics */}
         <Layout.Section>
           <Grid>
             <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
@@ -293,18 +295,21 @@ export default function Index() {
                   </div>
                   <Text as="h3" variant="headingMd">Products Modified</Text>
                   <Text as="p" variant="bodyLg">
-                    {subscription.usageCount} / {subscription.usageLimit}
+                    {/* ✅ FIX: Use formatUsageDisplay for proper unlimited handling */}
+                    {formatUsageDisplay(subscription.usageCount, subscription.usageLimit)}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     Unique products this month
                   </Text>
-                  <div style={{ marginTop: "0.5rem" }}>
-                    <ProgressBar 
-                      progress={usagePercentage} 
-                      size="small"
-                      tone={hasReachedLimit ? "critical" : "primary"}
-                    />
-                  </div>
+                  {!isUnlimited && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <ProgressBar 
+                        progress={usagePercentage} 
+                        size="small"
+                        tone={hasReachedLimit ? "critical" : "primary"}
+                      />
+                    </div>
+                  )}
                 </div>
               </Card>
             </Grid.Cell>
@@ -316,11 +321,12 @@ export default function Index() {
                     <Icon source={CheckCircleIcon} />
                   </div>
                   <Text as="h3" variant="headingMd">Products Remaining</Text>
-                  <Text as="p" variant="bodyLg" tone={remainingProducts > 0 ? "success" : "critical"}>
-                    {remainingProducts}
+                  <Text as="p" variant="bodyLg" tone={typeof remainingProducts === 'string' || remainingProducts > 0 ? "success" : "critical"}>
+                    {/* ✅ FIX: Handle unlimited display properly */}
+                    {typeof remainingProducts === 'string' ? remainingProducts : remainingProducts}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    until {new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                    {isUnlimited ? "No limits!" : `until ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}`}
                   </Text>
                 </div>
               </Card>
@@ -345,7 +351,7 @@ export default function Index() {
           </Grid>
         </Layout.Section>
 
-        {/* Actions principales */}
+        {/* Main actions */}
         <Layout.Section>
           <Grid>
             <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 4, lg: 8, xl: 8 }}>
@@ -378,15 +384,7 @@ export default function Index() {
                         </Link>
                       )}
                     
-                      {/* Bouton de synchronisation manuelle */}
-                      {/* <Link to="/app/sync-subscription">
-                        <Button size="large">
-                          🔄 Sync Subscription
-                        </Button>
-                      </Link> */}
-
-                        {/* Bouton de synchronisation manuelle */}
-                        <Link to="/app/billing">
+                      <Link to="/app/billing">
                         <Button size="large">
                            Subscription
                         </Button>
@@ -429,7 +427,7 @@ export default function Index() {
           </Grid>
         </Layout.Section>
 
-        {/* Message de bienvenue pour nouveaux utilisateurs */}
+        {/* Welcome message for new users */}
         {isNewUser && !billingStatus && !syncStatus && (
           <Layout.Section>
             <Card>
@@ -463,7 +461,7 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* CTA d'upgrade pour plan gratuit */}
+        {/* Upgrade CTA for free plan */}
         {plan.name === "free" && !hasReachedLimit && !isNewUser && !billingStatus && !syncStatus && (
           <Layout.Section>
             <Card>
@@ -479,7 +477,7 @@ export default function Index() {
                     Ready to modify more products?
                   </Text>
                   <Text as="p" tone="inherit">
-                    Upgrade to Standard (500 products) or Pro (unlimited products) to unlock your pricing potential.
+                    Upgrade to Standard (unlimited products) with advanced features and 7-day free trial.
                   </Text>
                   <div>
                     <Link to="/app/billing">
@@ -497,7 +495,7 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Informations sur l'utilisation avancée */}
+        {/* Advanced usage insights */}
         {!isNewUser && subscription.usageCount > 5 && (
           <Layout.Section>
             <Card>
@@ -512,10 +510,10 @@ export default function Index() {
                   }}>
                     <div>
                       <Text as="p" variant="bodyMd" fontWeight="semibold">
-                        {((subscription.usageCount / subscription.usageLimit) * 100).toFixed(1)}%
+                        {isUnlimited ? "∞" : `${((subscription.usageCount / subscription.usageLimit) * 100).toFixed(1)}%`}
                       </Text>
                       <Text as="p" variant="bodySm" tone="subdued">
-                        of monthly quota used
+                        {isUnlimited ? "unlimited plan" : "of monthly quota used"}
                       </Text>
                     </div>
                     
@@ -547,7 +545,7 @@ export default function Index() {
                     }}>
                       <Text as="p" variant="bodySm">
                         💡 <strong>Pro Tip:</strong> You're using your free plan efficiently! 
-                        Consider upgrading to unlock more products and advanced features.
+                        Consider upgrading to unlimited products with a 7-day free trial.
                       </Text>
                     </div>
                   )}
