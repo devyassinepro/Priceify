@@ -388,42 +388,38 @@ export default function Billing() {
                       </div>
 
                       <div>
-                        {isCurrentPlan ? (
-                          <div>
-                            <Button disabled fullWidth size="large">
-                              Current Plan
+                      {isCurrentPlan ? (
+                            <div>
+                              <Button disabled fullWidth size="large">
+                                Current Plan
+                              </Button>
+                              {plan.name !== "free" && (
+                                <div style={{ marginTop: "1rem" }}>
+                                  <Button
+                                    onClick={handleCancelAction}
+                                    tone="critical"
+                                    size="large"
+                                    fullWidth
+                                  >
+                                    Cancel Subscription
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <Button
+                              onClick={() => handlePlanAction(plan.name)}
+                              variant={plan.recommended ? "primary" : "secondary"}
+                              size="large"
+                              fullWidth
+                              disabled={plan.name === "free"} // ✅ Désactiver le bouton pour le plan gratuit
+                            >
+                              {plan.name === "free" 
+                                ? "Free Plan" // ✅ Toujours afficher "Free Plan" sans option de downgrade
+                                : `${trialEligible && priceDisplay.trialInfo ? "Start Free Trial" : `Upgrade to ${plan.displayName}`}`
+                              }
                             </Button>
-                            {plan.name !== "free" && (
-                              <div style={{ marginTop: "1rem" }}>
-                                <Button
-                                  onClick={handleCancelAction}
-                                  tone="critical"
-                                  size="large"
-                                  fullWidth
-                                >
-                                  Cancel Subscription
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <Button
-                            onClick={() => 
-                              plan.name === "free" && canDowngrade 
-                                ? handleCancelAction() 
-                                : handlePlanAction(plan.name)
-                            }
-                            variant={plan.recommended ? "primary" : "secondary"}
-                            size="large"
-                            fullWidth
-                            disabled={plan.name === "free" && !canDowngrade}
-                          >
-                            {plan.name === "free" 
-                              ? (canDowngrade ? "Downgrade to Free" : "Free Plan") 
-                              : `${trialEligible && priceDisplay.trialInfo ? "Start Free Trial" : `Upgrade to ${plan.displayName}`}`
-                            }
-                          </Button>
-                        )}
+                          )}
                       </div>
                     </div>
                   </Card>
