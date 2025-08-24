@@ -1,5 +1,5 @@
-// app/routes/app._index.tsx - Updated with unlimited display fixes
-import { json, LoaderFunctionArgs, redirect } from "@remix-run/node";
+// app/routes/app._index.tsx - Fixed dashboard display
+import { json, LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, Link, useSearchParams } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import {
@@ -32,12 +32,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   const url = new URL(request.url);
   console.log(`🏠 App index loaded for ${session.shop}`);
-  console.log(`🔗 Full URL: ${url.toString()}`);
 
   // Detect billing success parameters
   const billingSuccess = url.searchParams.get("billing_success");
   const planUpgraded = url.searchParams.get("plan");
-  const upgraded = url.searchParams.get("upgraded");
   const billingError = url.searchParams.get("billing_error");
   
   let billingMessage = null;
@@ -94,6 +92,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const subscriptionStats = await getSubscriptionStats(session.shop);
   const planData = getPlan(subscriptionStats.planName);
 
+  // ✅ FIX: Proper calculation of usage and limits
+  const isUnlimited = hasUnlimitedProducts(subscriptionStats.planName);
+  const usagePercentage = isUnlimited ? 0 : (subscriptionStats.usageCount / subscriptionStats.usageLimit) * 100;
+  const remainingProducts = isUnlimited ? "unlimited" : Math.max(0, subscriptionStats.usageLimit - subscriptionStats.usageCount);
+  
+  console.log(`📊 Dashboard stats:`, {
+    plan: subscriptionStats.planName,
+    usageCount: subscriptionStats.usageCount,
+    usageLimit: subscriptionStats.usageLimit,
+    isUnlimited,
+    usagePercentage: usagePercentage.toFixed(1) + '%',
+    remainingProducts
+  });
+
   // Existing sync parameters (keep for compatibility)
   const syncStatus = url.searchParams.get("sync");
   const syncPlan = url.searchParams.get("sync_plan");
@@ -103,8 +115,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     shop: session.shop,
     subscription: subscriptionStats,
     plan: planData,
-    usagePercentage: hasUnlimitedProducts(subscriptionStats.planName) ? 0 : (subscriptionStats.usageCount / subscriptionStats.usageLimit) * 100,
-    remainingProducts: hasUnlimitedProducts(subscriptionStats.planName) ? "unlimited" : subscriptionStats.usageLimit - subscriptionStats.usageCount,
+    usagePercentage,
+    remainingProducts,
     uniqueProductCount: subscriptionStats.uniqueProductCount || 0,
     billingStatus,
     billingMessage,
@@ -112,6 +124,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     syncPlan,
     syncMessage,
     autoSyncResult,
+    isUnlimited,
   });
 };
 
@@ -129,12 +142,12 @@ export default function Index() {
     syncPlan,
     syncMessage,
     autoSyncResult,
+    isUnlimited,
   } = useLoaderData<typeof loader>();
   
   const [searchParams, setSearchParams] = useSearchParams();
 
   const isNewUser = subscription.usageCount === 0;
-  const isUnlimited = hasUnlimitedProducts(subscription.planName);
   const isNearLimit = !isUnlimited && usagePercentage > 80;
   const hasReachedLimit = !isUnlimited && usagePercentage >= 100;
 
@@ -218,7 +231,7 @@ export default function Index() {
             <Banner title="🎉 Subscription Updated!" tone="success">
               <Text as="p">
                 Your subscription has been successfully updated to the {syncPlan} plan. 
-                You can now modify up to {hasUnlimitedProducts(syncPlan || 'free') ? 'unlimited' : plan.usageLimit} products per month.
+                You can now modify up to {isUnlimited ? 'unlimited' : plan.usageLimit.toLocaleString()} products per month.
               </Text>
             </Banner>
           </Layout.Section>
@@ -260,7 +273,7 @@ export default function Index() {
               }}
             >
               <Text as="p">
-                You've modified {subscription.usageCount} of {subscription.usageLimit} allowed unique products this month
+                You've modified {subscription.usageCount.toLocaleString()} of {subscription.usageLimit.toLocaleString()} allowed unique products this month
                 {hasReachedLimit ? ". Upgrade to continue making changes." : "."}
               </Text>
             </Banner>
@@ -295,7 +308,6 @@ export default function Index() {
                   </div>
                   <Text as="h3" variant="headingMd">Products Modified</Text>
                   <Text as="p" variant="bodyLg">
-                    {/* ✅ FIX: Use formatUsageDisplay for proper unlimited handling */}
                     {formatUsageDisplay(subscription.usageCount, subscription.usageLimit)}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
@@ -322,8 +334,7 @@ export default function Index() {
                   </div>
                   <Text as="h3" variant="headingMd">Products Remaining</Text>
                   <Text as="p" variant="bodyLg" tone={typeof remainingProducts === 'string' || remainingProducts > 0 ? "success" : "critical"}>
-                    {/* ✅ FIX: Handle unlimited display properly */}
-                    {typeof remainingProducts === 'string' ? remainingProducts : remainingProducts}
+                    {typeof remainingProducts === 'string' ? remainingProducts : remainingProducts.toLocaleString()}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     {isUnlimited ? "No limits!" : `until ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}`}
@@ -340,7 +351,7 @@ export default function Index() {
                   </div>
                   <Text as="h3" variant="headingMd">Total Price Changes</Text>
                   <Text as="p" variant="bodyLg">
-                    {subscription.totalPriceChanges || 0}
+                    {(subscription.totalPriceChanges || 0).toLocaleString()}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     Individual changes made
@@ -453,7 +464,7 @@ export default function Index() {
                     </Link>
                   </div>
                   <Text as="p" variant="bodySm" tone="inherit">
-                    ✨ You can modify up to {subscription.usageLimit} unique products per month on the free plan.
+                    ✨ You can modify up to {subscription.usageLimit.toLocaleString()} unique products per month on the free plan.
                   </Text>
                 </BlockStack>
               </div>
@@ -477,7 +488,7 @@ export default function Index() {
                     Ready to modify more products?
                   </Text>
                   <Text as="p" tone="inherit">
-                    Upgrade to Standard (unlimited products) with advanced features and 7-day free trial.
+                    Upgrade to Standard ({PLANS.standard.usageLimit.toLocaleString()} products/month) with advanced features and 7-day free trial.
                   </Text>
                   <div>
                     <Link to="/app/billing">
@@ -510,7 +521,7 @@ export default function Index() {
                   }}>
                     <div>
                       <Text as="p" variant="bodyMd" fontWeight="semibold">
-                        {isUnlimited ? "∞" : `${((subscription.usageCount / subscription.usageLimit) * 100).toFixed(1)}%`}
+                        {isUnlimited ? "∞" : `${usagePercentage.toFixed(1)}%`}
                       </Text>
                       <Text as="p" variant="bodySm" tone="subdued">
                         {isUnlimited ? "unlimited plan" : "of monthly quota used"}
@@ -545,7 +556,7 @@ export default function Index() {
                     }}>
                       <Text as="p" variant="bodySm">
                         💡 <strong>Pro Tip:</strong> You're using your free plan efficiently! 
-                        Consider upgrading to unlimited products with a 7-day free trial.
+                        Consider upgrading to {PLANS.standard.usageLimit.toLocaleString()} products with a 7-day free trial.
                       </Text>
                     </div>
                   )}
