@@ -88,19 +88,35 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
   
-  // Get subscription data (after upgrade or sync)
+  // ✅ FIX: Get subscription data with forced sync
   const subscriptionStats = await getSubscriptionStats(session.shop);
-  const planData = getPlan(subscriptionStats.planName);
+  
+  // ✅ FIX: Also force a usage count sync to ensure accuracy
+  try {
+    const { syncUsageCount } = await import("../models/subscription.server");
+    const syncResult = await syncUsageCount(session.shop);
+    if (syncResult.synced) {
+      console.log(`🔄 Usage count synced: ${syncResult.oldCount} -> ${syncResult.newCount}`);
+    }
+  } catch (syncError) {
+    console.warn("⚠️ Usage count sync warning:", syncError);
+  }
+  
+  // Re-fetch after sync
+  const finalSubscriptionStats = await getSubscriptionStats(session.shop);
+  
+  const planData = getPlan(finalSubscriptionStats.planName);
 
   // ✅ FIX: Proper calculation of usage and limits
-  const isUnlimited = hasUnlimitedProducts(subscriptionStats.planName);
-  const usagePercentage = isUnlimited ? 0 : (subscriptionStats.usageCount / subscriptionStats.usageLimit) * 100;
-  const remainingProducts = isUnlimited ? "unlimited" : Math.max(0, subscriptionStats.usageLimit - subscriptionStats.usageCount);
+  const isUnlimited = hasUnlimitedProducts(finalSubscriptionStats.planName);
+  const usagePercentage = isUnlimited ? 0 : (finalSubscriptionStats.usageCount / finalSubscriptionStats.usageLimit) * 100;
+  const remainingProducts = isUnlimited ? "unlimited" : Math.max(0, finalSubscriptionStats.usageLimit - finalSubscriptionStats.usageCount);
   
-  console.log(`📊 Dashboard stats:`, {
-    plan: subscriptionStats.planName,
-    usageCount: subscriptionStats.usageCount,
-    usageLimit: subscriptionStats.usageLimit,
+  console.log(`📊 Dashboard stats (after sync):`, {
+    plan: finalSubscriptionStats.planName,
+    usageCount: finalSubscriptionStats.usageCount,
+    usageLimit: finalSubscriptionStats.usageLimit,
+    uniqueProductsLength: ((finalSubscriptionStats.uniqueProductsModified as string[]) || []).length,
     isUnlimited,
     usagePercentage: usagePercentage.toFixed(1) + '%',
     remainingProducts
@@ -113,11 +129,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
   return json({
     shop: session.shop,
-    subscription: subscriptionStats,
+    subscription: finalSubscriptionStats,
     plan: planData,
     usagePercentage,
     remainingProducts,
-    uniqueProductCount: subscriptionStats.uniqueProductCount || 0,
+    uniqueProductCount: finalSubscriptionStats.uniqueProductCount || 0,
     billingStatus,
     billingMessage,
     syncStatus,
