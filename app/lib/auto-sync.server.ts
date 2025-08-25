@@ -101,13 +101,13 @@ async function syncFromAppSubscriptions(admin: any, shop: string): Promise<SyncR
     }
 
     const amount = parseFloat(subscription.lineItems?.[0]?.plan?.pricingDetails?.price?.amount || "0");
-    console.log(`💰 Found AppSubscription with amount: $${amount}`);
+    console.log(`💰 Found AppSubscription with amount: ${amount}`);
 
-    // Mapper au plan
+    // ✅ UPDATED: Mapper au plan avec les nouveaux prix
     const detectedPlan = mapAmountToPlan(amount);
     
     if (detectedPlan === "free" && amount > 0) {
-      return { success: false, message: `Unknown amount: $${amount}` };
+      return { success: false, message: `Unknown amount: ${amount}` };
     }
 
     // Mettre à jour l'abonnement local
@@ -126,7 +126,7 @@ async function syncFromAppSubscriptions(admin: any, shop: string): Promise<SyncR
     return {
       success: true,
       syncedPlan: detectedPlan,
-      message: `Synced from AppSubscription: ${PLANS[detectedPlan as keyof typeof PLANS].displayName} ($${amount})`,
+      message: `Synced from AppSubscription: ${PLANS[detectedPlan as keyof typeof PLANS].displayName} (${amount})`,
       source: 'AppSubscription'
     };
 
@@ -173,13 +173,13 @@ async function syncFromAppCharges(admin: any, shop: string): Promise<SyncResult>
 
     const charge = activeCharges[0]; // Prendre la plus récente
     const amount = parseFloat(charge.price?.amount || "0");
-    console.log(`💰 Found AppRecurringApplicationCharge with amount: $${amount}`);
+    console.log(`💰 Found AppRecurringApplicationCharge with amount: ${amount}`);
 
-    // Mapper au plan
+    // ✅ UPDATED: Mapper au plan avec les nouveaux prix
     const detectedPlan = mapAmountToPlan(amount);
     
     if (detectedPlan === "free" && amount > 0) {
-      return { success: false, message: `Unknown amount: $${amount}` };
+      return { success: false, message: `Unknown amount: ${amount}` };
     }
 
     // Mettre à jour l'abonnement local
@@ -196,7 +196,7 @@ async function syncFromAppCharges(admin: any, shop: string): Promise<SyncResult>
     return {
       success: true,
       syncedPlan: detectedPlan,
-      message: `Synced from AppRecurringApplicationCharge: ${PLANS[detectedPlan as keyof typeof PLANS].displayName} ($${amount})`,
+      message: `Synced from AppRecurringApplicationCharge: ${PLANS[detectedPlan as keyof typeof PLANS].displayName} (${amount})`,
       source: 'AppRecurringApplicationCharge'
     };
 
@@ -207,58 +207,21 @@ async function syncFromAppCharges(admin: any, shop: string): Promise<SyncResult>
 }
 
 /**
- * Mappe un montant à un plan
+ * ✅ UPDATED: Mappe un montant à un plan avec les nouveaux prix
  */
 function mapAmountToPlan(amount: number): string {
+  // Vérifier chaque plan avec une tolérance de 2 centimes
   for (const [planKey, planData] of Object.entries(PLANS)) {
-    if (Math.abs(planData.price - amount) < 0.02) { // Tolérance de 2 centimes
+    if (Math.abs(planData.price - amount) < 0.02) {
       return planKey;
     }
   }
+  
+  // Si aucun plan exact trouvé, essayer une correspondance approximative
+  if (amount >= 9.50 && amount <= 10.50) return "pro";     // ~$9.99
+  if (amount >= 4.50 && amount <= 5.50) return "standard"; // ~$4.99
+  if (amount < 0.50) return "free";                        // ~$0.00
+  
+  console.warn(`⚠️ Unknown price amount: ${amount} - defaulting to free`);
   return "free";
-}
-
-/**
- * Vérifie si un abonnement local est probablement obsolète
- */
-export async function needsSync(shop: string): Promise<boolean> {
-  try {
-    const subscription = await getOrCreateSubscription(shop);
-    
-    // Si c'est gratuit et récemment créé, pas besoin de sync
-    if (subscription.planName === "free") {
-      const hoursSinceCreation = (Date.now() - new Date(subscription.createdAt).getTime()) / (1000 * 60 * 60);
-      if (hoursSinceCreation < 1) { // Moins d'1 heure
-        return false;
-      }
-    }
-    
-    // Si pas de subscriptionId mais plan payant, probablement obsolète
-    if (subscription.planName !== "free" && !subscription.subscriptionId) {
-      return true;
-    }
-    
-    // Si mis à jour il y a plus de 24h, vérifier
-    const hoursSinceUpdate = (Date.now() - new Date(subscription.updatedAt).getTime()) / (1000 * 60 * 60);
-    return hoursSinceUpdate > 24;
-    
-  } catch (error) {
-    console.error("Error checking sync needs:", error);
-    return false;
-  }
-}
-
-/**
- * Auto-sync intelligent qui ne fait rien si pas nécessaire
- */
-export async function smartAutoSync(admin: any, shop: string): Promise<SyncResult | null> {
-  const shouldSync = await needsSync(shop);
-  
-  if (!shouldSync) {
-    console.log(`ℹ️ No sync needed for ${shop}`);
-    return null;
-  }
-  
-  console.log(`🔄 Smart sync triggered for ${shop}`);
-  return await autoSyncSubscription(admin, shop);
 }

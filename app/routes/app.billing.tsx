@@ -1,11 +1,11 @@
-// app/routes/app.billing.tsx - FIX: Only the return URL to prevent login redirect
+// app/routes/app.billing.tsx - UPDATED with new pricing
 import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import { Card, Layout, Page, Text, Button, Grid, Badge, List, Banner, BlockStack } from "@shopify/polaris";
 import { getOrCreateSubscription, updateSubscription } from "../models/subscription.server";
-import { PLANS, formatPriceDisplay, isEligibleForTrial, getPriceWithTrial } from "../lib/plans";
+import { PLANS, formatPriceDisplay, isEligibleForTrial, getPriceWithTrial, hasUnlimitedProducts } from "../lib/plans";
 
 interface ActionResult {
   success?: string;
@@ -298,7 +298,10 @@ export default function Billing() {
                       {PLANS[subscription.planName as keyof typeof PLANS]?.displayName || subscription.planName} Plan
                     </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
-                      {subscription.usageCount} / {subscription.usageLimit === 9999999 ? "unlimited" : subscription.usageLimit} products used this month
+                      {hasUnlimitedProducts(subscription.planName) ? 
+                        `${subscription.usageCount} products used this month (unlimited)` :
+                        `${subscription.usageCount} / ${subscription.usageLimit} products used this month`
+                      }
                     </Text>
                   </div>
                   <Badge tone={subscription.planName === 'free' ? 'info' : 'success'}>
@@ -318,6 +321,7 @@ export default function Billing() {
               const canDowngrade = plan.name === 'free' && subscription.planName !== 'free';
               const trialEligible = isEligibleForTrial(subscription, plan.name);
               const priceDisplay = getPriceWithTrial(plan, trialEligible);
+              const isUnlimited = hasUnlimitedProducts(plan.name);
               
               return (
                 <Grid.Cell key={plan.name} columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}>
@@ -348,14 +352,14 @@ export default function Billing() {
                           </Text>
                           {trialEligible && priceDisplay.trialInfo && (
                             <Text as="p" variant="bodySm" tone="subdued">
-                              {priceDisplay.trialInfo}, then {formatPriceDisplay(plan.price)}
+                              {priceDisplay.trialInfo}
                             </Text>
                           )}
                         </div>
 
                         <div style={{ marginBottom: "2rem" }}>
                           <Text as="p" variant="bodyLg" fontWeight="semibold">
-                            {plan.usageLimit === 9999999 ? "Unlimited" : plan.usageLimit} products/month
+                            {isUnlimited ? "Unlimited" : plan.usageLimit} products/month
                           </Text>
                         </div>
 
@@ -412,13 +416,22 @@ export default function Billing() {
           </Grid>
         </Layout.Section>
 
-        {/* Billing information and troubleshooting */}
+        {/* ✅ NEW: Updated billing information with new pricing */}
         <Layout.Section>
           <Card>
             <div style={{ padding: "1.5rem" }}>
               <BlockStack gap="300">
                 <Text as="h3" variant="headingMd">💳 Billing Information</Text>
                 <div style={{ display: "grid", gap: "0.5rem" }}>
+                  <Text as="p" variant="bodySm">
+                    • <strong>Free:</strong> 20 products/month - Perfect for small stores
+                  </Text>
+                  <Text as="p" variant="bodySm">
+                    • <strong>Standard ($4.99/month):</strong> 500 products/month - Great for growing businesses
+                  </Text>
+                  <Text as="p" variant="bodySm">
+                    • <strong>Pro ($9.99/month):</strong> Unlimited products - For large catalogs
+                  </Text>
                   <Text as="p" variant="bodySm">
                     • Billing is handled securely through Shopify
                   </Text>
@@ -430,9 +443,6 @@ export default function Billing() {
                   </Text>
                   <Text as="p" variant="bodySm">
                     • Free trials are available for new users on paid plans
-                  </Text>
-                  <Text as="p" variant="bodySm">
-                    • Downgrading to free is immediate and cancels billing
                   </Text>
                   <Text as="p" variant="bodySm">
                     • {process.env.NODE_ENV !== "production" ? "Test mode" : "Live billing"} - charges will {process.env.NODE_ENV !== "production" ? "not" : ""} appear on your Shopify bill

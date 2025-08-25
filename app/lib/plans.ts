@@ -1,4 +1,4 @@
-// app/lib/plans.ts - SIMPLIFIED plans for App Store approval
+// app/lib/plans.ts - UPDATED plans structure
 export interface Plan {
   name: string;
   displayName: string;
@@ -11,7 +11,7 @@ export interface Plan {
   trialDays?: number;
 }
 
-// ✅ FIX: Simplified, clear plan structure for App Store approval
+// ✅ NEW: Updated plan structure with new pricing
 export const PLANS: Record<string, Plan> = {
   free: {
     name: "free",
@@ -33,7 +33,7 @@ export const PLANS: Record<string, Plan> = {
   standard: {
     name: "standard",
     displayName: "Standard",
-    price: 9.99,
+    price: 4.99,
     currency: "USD", 
     usageLimit: 500,
     billingInterval: "EVERY_30_DAYS",
@@ -53,13 +53,13 @@ export const PLANS: Record<string, Plan> = {
   pro: {
     name: "pro", 
     displayName: "Pro",
-    price: 19.99,
+    price: 9.99,
     currency: "USD",
-    usageLimit: 2000, // ✅ FIX: Realistic limit instead of 9999999
+    usageLimit: 999999, // ✅ NEW: Unlimited = very high number for Pro
     billingInterval: "EVERY_30_DAYS",
     trialDays: 7,
     features: [
-      "2,000 unique products per month",
+      "Unlimited products per month",
       "Unlimited price changes per product",
       "All features + bulk operations", 
       "Advanced analytics and reporting",
@@ -71,17 +71,24 @@ export const PLANS: Record<string, Plan> = {
   }
 };
 
-// ✅ FIX: Remove unlimited products concept for clarity
+// ✅ NEW: Check if plan has unlimited products
 export function hasUnlimitedProducts(planName: string): boolean {
-  return false; // No unlimited plans to avoid confusion
+  const plan = getPlan(planName);
+  return plan.usageLimit >= 999999; // Pro plan is unlimited
 }
 
-// ✅ FIX: Clear display formatting
+// ✅ UPDATED: Better display formatting for unlimited
 export function formatUsageDisplay(current: number, limit: number): string {
+  if (limit >= 999999) {
+    return `${current.toLocaleString()} / unlimited`;
+  }
   return `${current.toLocaleString()} / ${limit.toLocaleString()}`;
 }
 
 export function formatUsageLimit(usageLimit: number): string {
+  if (usageLimit >= 999999) {
+    return "unlimited";
+  }
   return usageLimit.toLocaleString();
 }
 
@@ -89,13 +96,13 @@ export function getPlan(planName: string): Plan {
   return PLANS[planName] || PLANS.free;
 }
 
-// ✅ FIX: Simplified feature checking
+// ✅ UPDATED: Feature checking with unlimited support
 export function canUseFeature(subscription: any, feature: string): boolean {
   const plan = getPlan(subscription?.planName || 'free');
   const uniqueProductsModified = (subscription?.uniqueProductsModified as string[])?.length || 0;
   
-  // Check usage limits first
-  if (uniqueProductsModified >= plan.usageLimit) {
+  // Check usage limits first (skip for unlimited)
+  if (!hasUnlimitedProducts(plan.name) && uniqueProductsModified >= plan.usageLimit) {
     return false;
   }
   
@@ -132,7 +139,7 @@ export function formatPriceDisplay(price: number, currency: string = "USD"): str
   return `${formatter.format(price)}/month`;
 }
 
-// ✅ FIX: Clear upgrade recommendations
+// ✅ UPDATED: Clear upgrade recommendations with new pricing
 export function getUpgradeRecommendation(subscription: any): {
   shouldUpgrade: boolean;
   reason: string;
@@ -140,12 +147,22 @@ export function getUpgradeRecommendation(subscription: any): {
 } {
   const currentPlan = getPlan(subscription?.planName || 'free');
   const uniqueProductsModified = (subscription?.uniqueProductsModified as string[])?.length || 0;
+  
+  // Skip recommendation for unlimited plans
+  if (hasUnlimitedProducts(currentPlan.name)) {
+    return {
+      shouldUpgrade: false,
+      reason: "You have unlimited access.",
+      recommendedPlan: currentPlan.name
+    };
+  }
+  
   const usagePercentage = (uniqueProductsModified / currentPlan.usageLimit) * 100;
 
   if (currentPlan.name === 'free' && usagePercentage > 80) {
     return {
       shouldUpgrade: true,
-      reason: `You've modified ${uniqueProductsModified} of ${currentPlan.usageLimit} allowed products (${usagePercentage.toFixed(1)}%). Upgrade for more capacity and advanced features.`,
+      reason: `You've modified ${uniqueProductsModified} of ${currentPlan.usageLimit} allowed products (${usagePercentage.toFixed(1)}%). Upgrade to Standard for 500 products at just $4.99/month.`,
       recommendedPlan: 'standard'
     };
   }
@@ -153,7 +170,7 @@ export function getUpgradeRecommendation(subscription: any): {
   if (currentPlan.name === 'standard' && usagePercentage > 85) {
     return {
       shouldUpgrade: true,
-      reason: `You're using ${usagePercentage.toFixed(1)}% of your Standard plan capacity. Upgrade to Pro for ${PLANS.pro.usageLimit.toLocaleString()} products and advanced features.`,
+      reason: `You're using ${usagePercentage.toFixed(1)}% of your Standard plan capacity. Upgrade to Pro for unlimited products at $9.99/month.`,
       recommendedPlan: 'pro'
     };
   }
@@ -165,7 +182,7 @@ export function getUpgradeRecommendation(subscription: any): {
   };
 }
 
-// ✅ FIX: Simplified trial eligibility
+// ✅ UPDATED: Trial eligibility with new plans
 export function isEligibleForTrial(subscription: any, planName: string): boolean {
   const plan = getPlan(planName);
   
@@ -196,7 +213,7 @@ export function getPriceWithTrial(plan: Plan, isEligible: boolean): {
   return { displayPrice: basePrice };
 }
 
-// ✅ FIX: Simplified quota estimation
+// ✅ UPDATED: Quota estimation with unlimited support
 export function estimateProductUsage(
   currentProductsModified: string[], 
   newProductIds: string[], 
@@ -207,6 +224,17 @@ export function estimateProductUsage(
   totalAfter: number;
   remaining: number;
 } {
+  // For unlimited plans, never exceed
+  if (usageLimit >= 999999) {
+    const newProducts = newProductIds.filter(id => !currentProductsModified.includes(id));
+    return {
+      wouldExceed: false,
+      newProductsCount: newProducts.length,
+      totalAfter: currentProductsModified.length + newProducts.length,
+      remaining: 999999 // Show as unlimited
+    };
+  }
+  
   const newProducts = newProductIds.filter(id => !currentProductsModified.includes(id));
   const totalAfter = currentProductsModified.length + newProducts.length;
   
@@ -227,10 +255,11 @@ export function getPlanLimits(planName: string): {
   isUnlimited: boolean;
 } {
   const plan = getPlan(planName);
+  const isUnlimited = hasUnlimitedProducts(planName);
   
   return {
     usageLimit: plan.usageLimit,
-    displayLimit: plan.usageLimit.toLocaleString(),
-    isUnlimited: false // No unlimited plans
+    displayLimit: isUnlimited ? "unlimited" : plan.usageLimit.toLocaleString(),
+    isUnlimited
   };
 }
