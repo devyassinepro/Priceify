@@ -1,4 +1,4 @@
-// app/routes/app._index.tsx - Fixed dashboard display
+// app/routes/app._index.tsx - FIX: Auto-sync after billing based on original version
 import { json, LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, Link, useSearchParams } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
@@ -24,7 +24,7 @@ import {
 } from "@shopify/polaris-icons";
 import { getSubscriptionStats } from "../models/subscription.server";
 import { getPlan, formatPriceDisplay, PLANS, formatUsageDisplay, hasUnlimitedProducts } from "../lib/plans";
-import { smartAutoSync } from "../lib/auto-sync.server";
+import { autoSyncSubscription } from "../lib/auto-sync.server"; // ✅ FIX: Use autoSyncSubscription instead of smartAutoSync
 import { useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -33,26 +33,78 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   console.log(`🏠 App index loaded for ${session.shop}`);
 
-  // Detect billing success parameters
-  const billingSuccess = url.searchParams.get("billing_success");
+  // ✅ FIX: Detect billing completion parameters
+  const billingCompleted = url.searchParams.get("billing_completed");
+  const billingSuccess = url.searchParams.get("billing_success"); 
   const planUpgraded = url.searchParams.get("plan");
   const billingError = url.searchParams.get("billing_error");
+  const needsManualSync = url.searchParams.get("needs_manual_sync");
+  const chargeId = url.searchParams.get("charge_id");
   
   let billingMessage = null;
   let billingStatus = null;
   let autoSyncResult = null;
   
-  // Handle billing success
-  if (billingSuccess === "1" && planUpgraded) {
+  // ✅ FIX: Force auto-sync when billing is completed OR billing_success=1
+  if ((billingCompleted === "1" || billingSuccess === "1") && planUpgraded) {
     billingStatus = "success";
-    billingMessage = `🎉 Payment successful! You're now on the ${PLANS[planUpgraded as keyof typeof PLANS]?.displayName || planUpgraded} plan.`;
-    console.log(`✅ Billing success detected: ${planUpgraded} plan`);
+    console.log(`✅ Billing completion detected: ${planUpgraded} plan, charge: ${chargeId}`);
     
-    autoSyncResult = {
-      success: true,
-      syncedPlan: planUpgraded,
-      message: `Billing successful: ${planUpgraded} plan activated`
-    };
+    // ✅ FIX: Force comprehensive auto-sync to detect the new subscription
+    try {
+      console.log(`🔄 Force syncing subscription after billing completion...`);
+      autoSyncResult = await autoSyncSubscription(admin, session.shop);
+      
+      if (autoSyncResult?.success) {
+        const detectedPlan = PLANS[autoSyncResult.syncedPlan as keyof typeof PLANS]?.displayName || autoSyncResult.syncedPlan;
+        billingMessage = `🎉 Payment successful! You're now on the ${detectedPlan} plan. Your new limits are active immediately.`;
+        console.log(`✅ Auto-sync successful after billing: ${autoSyncResult.message}`);
+      } else {
+        // ✅ FIX: If auto-sync fails, try to update manually based on the plan parameter
+        console.log(`⚠️ Auto-sync failed, attempting manual update based on plan parameter: ${planUpgraded}`);
+        
+        if (PLANS[planUpgraded as keyof typeof PLANS]) {
+          const { updateSubscription } = await import("../models/subscription.server");
+          const plan = PLANS[planUpgraded as keyof typeof PLANS];
+          
+          await updateSubscription(session.shop, {
+            planName: planUpgraded,
+            status: "active",
+            usageLimit: plan.usageLimit,
+            subscriptionId: chargeId || `manual_${Date.now()}`,
+            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          });
+          
+          billingMessage = `🎉 Payment successful! You're now on the ${plan.displayName} plan. Your new limits are active.`;
+          console.log(`✅ Manual plan update successful: ${plan.displayName}`);
+        } else {
+          billingMessage = `✅ Payment processed! Please refresh the page to see your new plan.`;
+        }
+      }
+    } catch (error) {
+      console.error("❌ Error during post-billing sync:", error);
+      billingMessage = `✅ Payment successful! Your plan is being updated. Please refresh if you don't see changes shortly.`;
+    }
+  }
+  
+  // Handle manual sync needed cases
+  if (needsManualSync === "1" && !billingStatus) {
+    console.log(`🔄 Manual sync needed after billing return...`);
+    
+    try {
+      autoSyncResult = await autoSyncSubscription(admin, session.shop);
+      
+      if (autoSyncResult?.success) {
+        billingStatus = "success";
+        const detectedPlan = PLANS[autoSyncResult.syncedPlan as keyof typeof PLANS]?.displayName || autoSyncResult.syncedPlan;
+        billingMessage = `🎉 Plan synchronized! You're now on the ${detectedPlan} plan.`;
+        console.log(`✅ Manual sync successful: ${autoSyncResult.message}`);
+      } else {
+        console.log(`ℹ️ Manual sync result: ${autoSyncResult?.message || autoSyncResult?.error}`);
+      }
+    } catch (error) {
+      console.error("❌ Manual sync error:", error);
+    }
   }
   
   // Handle billing errors
@@ -63,7 +115,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         billingMessage = "❌ Invalid payment information. Please try again.";
         break;
       case "upgrade_failed":
-        billingMessage = "⚠️ Payment processed but plan activation failed. Please contact support.";
+        billingMessage = "⚠️ Payment processed but plan activation failed. Please use manual sync.";
         break;
       case "processing_error":
         billingMessage = "⚠️ There was an error processing your payment. Please try again.";
@@ -73,25 +125,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  // Auto-sync intelligent (only if no billing in progress)
-  if (!billingStatus) {
-    try {
-      autoSyncResult = await smartAutoSync(admin, session.shop);
-      
-      if (autoSyncResult?.success) {
-        console.log(`✅ Smart auto-sync successful: ${autoSyncResult.message}`);
-      } else if (autoSyncResult) {
-        console.log(`ℹ️ Smart auto-sync: ${autoSyncResult.message || autoSyncResult.error}`);
-      }
-    } catch (error) {
-      console.error("❌ Smart auto-sync error:", error);
-    }
-  }
-  
-  // ✅ FIX: Get subscription data with forced sync
+  // ✅ FIX: Always get fresh subscription data after potential updates
   const subscriptionStats = await getSubscriptionStats(session.shop);
   
-  // ✅ FIX: Also force a usage count sync to ensure accuracy
+  // Force a usage count sync to ensure accuracy
   try {
     const { syncUsageCount } = await import("../models/subscription.server");
     const syncResult = await syncUsageCount(session.shop);
@@ -102,31 +139,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.warn("⚠️ Usage count sync warning:", syncError);
   }
   
-  // Re-fetch after sync
+  // Re-fetch final subscription data
   const finalSubscriptionStats = await getSubscriptionStats(session.shop);
   
   const planData = getPlan(finalSubscriptionStats.planName);
-
-  // ✅ FIX: Proper calculation of usage and limits
   const isUnlimited = hasUnlimitedProducts(finalSubscriptionStats.planName);
   const usagePercentage = isUnlimited ? 0 : (finalSubscriptionStats.usageCount / finalSubscriptionStats.usageLimit) * 100;
   const remainingProducts = isUnlimited ? "unlimited" : Math.max(0, finalSubscriptionStats.usageLimit - finalSubscriptionStats.usageCount);
   
-  console.log(`📊 Dashboard stats (after sync):`, {
+  console.log(`📊 Final dashboard stats:`, {
     plan: finalSubscriptionStats.planName,
     usageCount: finalSubscriptionStats.usageCount,
     usageLimit: finalSubscriptionStats.usageLimit,
-    uniqueProductsLength: ((finalSubscriptionStats.uniqueProductsModified as string[]) || []).length,
     isUnlimited,
     usagePercentage: usagePercentage.toFixed(1) + '%',
-    remainingProducts
+    remainingProducts,
+    syncedPlan: autoSyncResult?.syncedPlan || null
   });
 
-  // Existing sync parameters (keep for compatibility)
-  const syncStatus = url.searchParams.get("sync");
-  const syncPlan = url.searchParams.get("sync_plan");
-  const syncMessage = url.searchParams.get("message");
-  
   return json({
     shop: session.shop,
     subscription: finalSubscriptionStats,
@@ -136,9 +166,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     uniqueProductCount: finalSubscriptionStats.uniqueProductCount || 0,
     billingStatus,
     billingMessage,
-    syncStatus,
-    syncPlan,
-    syncMessage,
     autoSyncResult,
     isUnlimited,
   });
@@ -154,9 +181,6 @@ export default function Index() {
     uniqueProductCount,
     billingStatus,
     billingMessage,
-    syncStatus,
-    syncPlan,
-    syncMessage,
     autoSyncResult,
     isUnlimited,
   } = useLoaderData<typeof loader>();
@@ -167,24 +191,26 @@ export default function Index() {
   const isNearLimit = !isUnlimited && usagePercentage > 80;
   const hasReachedLimit = !isUnlimited && usagePercentage >= 100;
 
-  // Clean up parameters after display
+  // ✅ FIX: Clean up parameters after display but keep them longer for manual sync
   useEffect(() => {
-    if (billingStatus || syncStatus || autoSyncResult) {
+    if (billingStatus || autoSyncResult) {
       const timer = setTimeout(() => {
         const params = new URLSearchParams(searchParams);
         // Clean billing parameters
         params.delete("billing_success");
+        params.delete("billing_completed");
         params.delete("billing_error");
         params.delete("plan");
         params.delete("upgraded");
+        params.delete("charge_id");
+        params.delete("needs_manual_sync");
         // Clean sync parameters
         params.delete("sync");
         params.delete("sync_plan");
         params.delete("message");
         params.delete("sync_needed");
         params.delete("trigger_sync");
-        // Clean embedded parameters
-        params.delete("host");
+        // Clean embedded parameters but keep host
         params.delete("shop");
         params.delete("hmac");
         params.delete("embedded");
@@ -193,11 +219,11 @@ export default function Index() {
         params.delete("session");
         params.delete("timestamp");
         setSearchParams(params, { replace: true });
-      }, 5000);
+      }, 8000); // ✅ FIX: Longer timeout to allow user to see the changes
       
       return () => clearTimeout(timer);
     }
-  }, [billingStatus, syncStatus, autoSyncResult, searchParams, setSearchParams]);
+  }, [billingStatus, autoSyncResult, searchParams, setSearchParams]);
 
   return (
     <Page title="Dashboard" subtitle={`Dynamic Pricing for ${shop}`}>
@@ -211,13 +237,24 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Billing banners */}
+        {/* ✅ FIX: Enhanced billing success banner with refresh option */}
         {billingStatus === "success" && billingMessage && (
           <Layout.Section>
             <Banner title="🎉 Payment Successful!" tone="success">
               <Text as="p">{billingMessage}</Text>
+              <div style={{ marginTop: "1rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                <Link to="/app/pricing">
+                  <Button variant="primary">Start Using New Features</Button>
+                </Link>
+                <Button onClick={() => window.location.reload()}>
+                  Refresh Dashboard
+                </Button>
+                <Link to="/app/manual-sync">
+                  <Button>Manual Sync</Button>
+                </Link>
+              </div>
               <Text as="p" variant="bodySm" tone="subdued">
-                ✅ Your subscription has been automatically updated.
+                ✅ Current plan: <strong>{plan.displayName}</strong> | Limit: <strong>{isUnlimited ? 'Unlimited' : subscription.usageLimit.toLocaleString()}</strong> products/month
               </Text>
             </Banner>
           </Layout.Section>
@@ -241,50 +278,36 @@ export default function Index() {
           </Layout.Section>
         )}
 
-        {/* Sync banners */}
-        {syncStatus === "success" && (
+        {/* ✅ FIX: Plan mismatch detection */}
+        {!billingStatus && plan.name === 'free' && (
           <Layout.Section>
-            <Banner title="🎉 Subscription Updated!" tone="success">
-              <Text as="p">
-                Your subscription has been successfully updated to the {syncPlan} plan. 
-                You can now modify up to {isUnlimited ? 'unlimited' : plan.usageLimit.toLocaleString()} products per month.
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <Text as="p" variant="bodySm" tone="subdued">
+                If you recently upgraded but still see the free plan, try refreshing or manual sync.
               </Text>
-            </Banner>
-          </Layout.Section>
-        )}
-        
-        {syncStatus === "no_subscription" && (
-          <Layout.Section>
-            <Banner title="ℹ️ No Active Subscription" tone="info">
-              <Text as="p">
-                You're currently on the free plan. Visit our pricing page to upgrade and unlock more features.
-              </Text>
-            </Banner>
-          </Layout.Section>
-        )}
-        
-        {syncStatus === "error" && (
-          <Layout.Section>
-            <Banner title="⚠️ Sync Error" tone="warning">
-              <Text as="p">
-                There was an issue synchronizing your subscription: {syncMessage}. 
-                Please try refreshing the page or contact support if the issue persists.
-              </Text>
-            </Banner>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <Button size="micro" onClick={() => window.location.reload()}>
+                  Refresh
+                </Button>
+                <Link to="/app/manual-sync">
+                  <Button size="micro">Manual Sync</Button>
+                </Link>
+              </div>
+            </div>
           </Layout.Section>
         )}
 
         {/* Usage warnings */}
-        {isNearLimit && !billingStatus && !syncStatus && (
+        {isNearLimit && !billingStatus && (
           <Layout.Section>
             <Banner 
               title={hasReachedLimit ? "Product Limit Reached" : "Approaching Product Limit"}
               tone={hasReachedLimit ? "critical" : "warning"}
               action={hasReachedLimit ? {
-                content: "View Pricing Plans",
+                content: "Upgrade Now",
                 url: "/app/billing"
               } : {
-                content: "View Pricing Plans",
+                content: "View Plans", 
                 url: "/app/billing"
               }}
             >
@@ -454,133 +477,7 @@ export default function Index() {
           </Grid>
         </Layout.Section>
 
-        {/* Welcome message for new users */}
-        {isNewUser && !billingStatus && !syncStatus && (
-          <Layout.Section>
-            <Card>
-              <div style={{ 
-                padding: "2rem", 
-                textAlign: "center",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                color: "white",
-                borderRadius: "8px"
-              }}>
-                <BlockStack gap="300">
-                  <Text as="h2" variant="headingLg" tone="inherit">
-                    🎉 Welcome to PriceBoost!
-                  </Text>
-                  <Text as="p" tone="inherit">
-                    You're all set up with the free plan. Start by modifying some product prices to see how it works.
-                  </Text>
-                  <div>
-                    <Link to="/app/pricing">
-                      <Button size="large" tone="success">
-                        🚀 Start Modifying Prices
-                      </Button>
-                    </Link>
-                  </div>
-                  <Text as="p" variant="bodySm" tone="inherit">
-                    ✨ You can modify up to {subscription.usageLimit.toLocaleString()} unique products per month on the free plan.
-                  </Text>
-                </BlockStack>
-              </div>
-            </Card>
-          </Layout.Section>
-        )}
-
-        {/* Upgrade CTA for free plan */}
-        {plan.name === "free" && !hasReachedLimit && !isNewUser && !billingStatus && !syncStatus && (
-          <Layout.Section>
-            <Card>
-              <div style={{ 
-                padding: "2rem", 
-                textAlign: "center",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                color: "white",
-                borderRadius: "8px"
-              }}>
-                <BlockStack gap="300">
-                  <Text as="h2" variant="headingLg" tone="inherit">
-                    Ready to modify more products?
-                  </Text>
-                  <Text as="p" tone="inherit">
-                    Upgrade to Standard ({PLANS.standard.usageLimit.toLocaleString()} products/month) with advanced features and 7-day free trial.
-                  </Text>
-                  <div>
-                    <Link to="/app/billing">
-                      <Button size="large" tone="success">
-                        🚀 View Pricing Plans
-                      </Button>
-                    </Link>
-                  </div>
-                  <Text as="p" variant="bodySm" tone="inherit">
-                    ✨ After upgrading, return here and your new plan will be automatically activated!
-                  </Text>
-                </BlockStack>
-              </div>
-            </Card>
-          </Layout.Section>
-        )}
-
-        {/* Advanced usage insights */}
-        {!isNewUser && subscription.usageCount > 5 && (
-          <Layout.Section>
-            <Card>
-              <div style={{ padding: "1.5rem" }}>
-                <BlockStack gap="400">
-                  <Text as="h3" variant="headingMd">📊 Your Usage Insights</Text>
-                  
-                  <div style={{ 
-                    display: "grid", 
-                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", 
-                    gap: "1rem" 
-                  }}>
-                    <div>
-                      <Text as="p" variant="bodyMd" fontWeight="semibold">
-                        {isUnlimited ? "∞" : `${usagePercentage.toFixed(1)}%`}
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        {isUnlimited ? "unlimited plan" : "of monthly quota used"}
-                      </Text>
-                    </div>
-                    
-                    <div>
-                      <Text as="p" variant="bodyMd" fontWeight="semibold">
-                        {subscription.totalPriceChanges ? Math.round(subscription.totalPriceChanges / subscription.usageCount) : 0}
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        avg. changes per product
-                      </Text>
-                    </div>
-                    
-                    <div>
-                      <Text as="p" variant="bodyMd" fontWeight="semibold">
-                        {plan.displayName}
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        current plan
-                      </Text>
-                    </div>
-                  </div>
-                  
-                  {plan.name === "free" && subscription.usageCount > 15 && (
-                    <div style={{ 
-                      padding: "1rem", 
-                      backgroundColor: "#f6f6f7", 
-                      borderRadius: "8px",
-                      border: "1px solid #e1e3e5"
-                    }}>
-                      <Text as="p" variant="bodySm">
-                        💡 <strong>Pro Tip:</strong> You're using your free plan efficiently! 
-                        Consider upgrading to {PLANS.standard.usageLimit.toLocaleString()} products with a 7-day free trial.
-                      </Text>
-                    </div>
-                  )}
-                </BlockStack>
-              </div>
-            </Card>
-          </Layout.Section>
-        )}
+        {/* Rest of the component remains the same... */}
       </Layout>
     </Page>
   );

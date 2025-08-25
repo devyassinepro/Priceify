@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
 handle = "pricefy-1"
-application_url = "https://pricebooster-app-hkfq8.ondigitalocean.app"
+application_url = "https://conference-sort-bernard-patches.trycloudflare.com"
 embedded = true
 
 [build]
@@ -35,9 +35,7 @@ uri = "/webhooks/gdpr"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://pricebooster-app-hkfq8.ondigitalocean.app/auth/callback",
- "https://pricebooster-app-hkfq8.ondigitalocean.app/auth/shopify/callback", 
- "https://pricebooster-app-hkfq8.ondigitalocean.app/api/auth/callback"]
+redirect_urls = ["https://conference-sort-bernard-patches.trycloudflare.com/auth/callback", "https://conference-sort-bernard-patches.trycloudflare.com/auth/shopify/callback", "https://conference-sort-bernard-patches.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false

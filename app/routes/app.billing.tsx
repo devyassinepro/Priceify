@@ -1,4 +1,4 @@
-// app/routes/app.billing.tsx - Fixed downgrade issue
+// app/routes/app.billing.tsx - FIX: Only the return URL to prevent login redirect
 import React from "react";
 import { json, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useActionData, useSubmit } from "@remix-run/react";
@@ -32,24 +32,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const selectedPlan = formData.get("plan");
     const actionType = formData.get("action");
 
+    console.log(`🔄 Billing action: ${actionType} for plan: ${selectedPlan}`);
+
     if (!selectedPlan || typeof selectedPlan !== "string") {
       return json<ActionResult>({ error: "Invalid plan selected" });
     }
 
-    // ✅ FIX: Handle cancellation/downgrade FIRST, before plan validation
-    if (actionType === "cancel" || actionType === "downgrade") {
-      console.log(`🔄 Processing ${actionType} request for ${session.shop}`);
+    // Handle downgrade to free plan
+    if (actionType === "cancel" || selectedPlan === "free") {
+      console.log(`🚫 Processing downgrade to free plan for ${session.shop}`);
       
       try {
-        // Get current subscription to check if we need to cancel a Shopify subscription
         const currentSubscription = await getOrCreateSubscription(session.shop);
         
-        // If user has an active Shopify subscription, attempt to cancel it
-        if (currentSubscription.subscriptionId && currentSubscription.planName !== "free") {
-          console.log(`🚫 Attempting to cancel Shopify subscription: ${currentSubscription.subscriptionId}`);
-          
+        // Attempt to cancel Shopify subscription if exists
+        if (currentSubscription.subscriptionId) {
           try {
-            // Try to cancel the Shopify subscription
             const cancelResponse = await admin.graphql(`
               mutation AppSubscriptionCancel($id: ID!) {
                 appSubscriptionCancel(id: $id) {
@@ -70,17 +68,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             const cancelResult = await cancelResponse.json();
             
             if (cancelResult.data?.appSubscriptionCancel?.userErrors?.length > 0) {
-              console.log("⚠️ Shopify cancellation had errors, but proceeding with local update");
-            } else {
-              console.log("✅ Shopify subscription cancelled successfully");
+              console.log("⚠️ Shopify cancellation had errors:", cancelResult.data.appSubscriptionCancel.userErrors);
             }
           } catch (shopifyError) {
-            console.log("⚠️ Could not cancel Shopify subscription, but proceeding with local update:", shopifyError);
-            // Continue anyway - maybe the subscription was already cancelled
+            console.log("⚠️ Could not cancel Shopify subscription:", shopifyError);
           }
         }
 
-        // Always update local subscription to free plan
+        // Always update local subscription to free
         await updateSubscription(session.shop, {
           planName: "free",
           status: "active",
@@ -91,45 +86,38 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
         console.log(`✅ Successfully downgraded ${session.shop} to free plan`);
         return json<ActionResult>({ 
-          success: actionType === "cancel" ? "Subscription cancelled successfully" : "Successfully downgraded to free plan"
+          success: "Successfully downgraded to free plan. You can continue using the app with free tier limits."
         });
         
       } catch (error: any) {
-        console.error(`❌ Error during ${actionType}:`, error);
+        console.error(`❌ Error during downgrade:`, error);
         return json<ActionResult>({ 
-          error: `Failed to ${actionType}: ${error.message}` 
+          error: `Failed to downgrade: ${error.message}. Please contact support if this issue persists.`
         });
       }
     }
 
-    // ✅ NOW check plan validation for upgrades
+    // Validate plan exists for upgrades
     if (!PLANS[selectedPlan]) {
       return json<ActionResult>({ error: "Plan not found" });
     }
 
     const plan = PLANS[selectedPlan];
 
-    // Handle free plan selection (should not happen via upgrade button, but just in case)
-    if (plan.name === "free") {
-      return json<ActionResult>({ error: "Use the cancel button to downgrade to free plan" });
-    }
-
-    console.log(`🔄 Creating subscription for ${session.shop}: ${plan.displayName}`);
-
-    const protocol = request.headers.get('x-forwarded-proto') || 'https';
-    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || process.env.SHOPIFY_APP_URL?.replace(/^https?:\/\//, '');
-    const baseUrl = `${protocol}://${host}`;
+    // ✅ FIX: Proper embedded app return URL that prevents login redirect
+    const shopDomain = session.shop;
+    const host = Buffer.from(`${shopDomain}/admin`).toString('base64');
     
-    const returnUrl = `${baseUrl}/billing-return?shop=${session.shop}&plan=${selectedPlan}`;
-    console.log(`🔗 Return URL with plan: ${returnUrl}`);
+    // Use Shopify's embedded app return URL format
+    const returnUrl = `https://${shopDomain}/admin/apps/${process.env.SHOPIFY_API_KEY}?host=${host}&billing_success=1&plan=${selectedPlan}`;
     
-    // Check for trial eligibility
+    console.log(`🔗 Return URL: ${returnUrl}`);
+    
+    // Check trial eligibility  
     const subscription = await getOrCreateSubscription(session.shop);
     const trialEligible = isEligibleForTrial(subscription, selectedPlan);
     
-    console.log(`🎁 Trial eligibility for ${selectedPlan}:`, trialEligible);
-
-    // Build GraphQL variables with trial support
+    // Build GraphQL variables
     const variables: any = {
       name: `${plan.displayName} Plan`,
       returnUrl,
@@ -146,11 +134,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ]
     };
 
-    // Add trial days if eligible
+    // Add trial if eligible
     if (trialEligible && plan.trialDays && plan.trialDays > 0) {
       variables.lineItems[0].plan.appRecurringPricingDetails.trialDays = plan.trialDays;
-      console.log(`🎁 Adding ${plan.trialDays} trial days to subscription`);
+      console.log(`🎁 Adding ${plan.trialDays} trial days`);
     }
+    
+    console.log(`🔄 Creating Shopify subscription for ${plan.displayName}`);
     
     // Create Shopify subscription
     const response = await admin.graphql(`
@@ -160,10 +150,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             id
             name
             status
-            currentPeriodEnd
-            ${trialEligible && plan.trialDays ? `
-            trialDays
-            ` : ''}
           }
           confirmationUrl
           userErrors {
@@ -175,13 +161,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     `, { variables });
 
     const result = await response.json();
-    console.log('GraphQL Response:', JSON.stringify(result, null, 2));
 
     if (result.data?.appSubscriptionCreate?.userErrors?.length > 0) {
       const errors = result.data.appSubscriptionCreate.userErrors;
       console.error('Subscription creation errors:', errors);
       return json<ActionResult>({
-        error: `Billing error: ${errors.map((e: any) => e.message).join(', ')}`
+        error: `Unable to process upgrade: ${errors.map((e: any) => e.message).join(', ')}. Please try again or contact support.`
       });
     }
 
@@ -190,31 +175,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (!confirmationUrl) {
       return json<ActionResult>({
-        error: "Failed to create subscription - no confirmation URL"
+        error: "Unable to create billing session. Please try again or contact support."
       });
     }
 
-    console.log(`✅ Subscription created successfully`);
-    console.log(`🔗 Confirmation URL: ${confirmationUrl}`);
-    console.log(`🆔 Subscription ID: ${subscriptionId}`);
-
-    // Store the ID and plan for reference
+    // Store subscription ID for reference
     if (subscriptionId) {
       await updateSubscription(session.shop, {
         subscriptionId: subscriptionId,
-        // Don't change the plan here, wait for payment confirmation
+        // Don't change plan here - wait for successful payment
       });
     }
 
+    console.log(`✅ Subscription created - redirecting to Shopify billing`);
+
     return json<ActionResult>({
-      success: "Redirecting to billing...",
+      success: "Redirecting to secure billing...",
       confirmationUrl
     });
 
   } catch (error: any) {
     console.error(`💥 Billing action failed:`, error);
     return json<ActionResult>({
-      error: `Failed to process request: ${error.message}`
+      error: `System error occurred. Please try again in a few moments or contact support if the issue persists.`
     });
   }
 };
@@ -226,10 +209,11 @@ export default function Billing() {
 
   const { shop, subscription, plans } = loaderData;
 
-  // Redirect to Shopify billing confirmation page
+  // Redirect to Shopify billing
   React.useEffect(() => {
     if (actionData?.confirmationUrl) {
-      console.log('🔗 Redirecting to:', actionData.confirmationUrl);
+      console.log('🔗 Redirecting to Shopify billing:', actionData.confirmationUrl);
+      // Use top-level navigation for embedded apps
       if (window.top) {
         window.top.location.href = actionData.confirmationUrl;
       } else {
@@ -244,7 +228,6 @@ export default function Billing() {
     submit(formData, { method: "post" });
   };
 
-  // ✅ FIX: Enhanced cancel/downgrade handler
   const handleCancelAction = () => {
     const currentPlan = subscription.planName;
     const isCurrentlyFree = currentPlan === "free";
@@ -259,8 +242,8 @@ export default function Billing() {
     
     if (confirm(confirmMessage)) {
       const formData = new FormData();
-      formData.append("plan", currentPlan); // Send current plan for context
-      formData.append("action", "downgrade");
+      formData.append("plan", currentPlan);
+      formData.append("action", "cancel");
       submit(formData, { method: "post" });
     }
   };
@@ -388,38 +371,38 @@ export default function Billing() {
                       </div>
 
                       <div>
-                      {isCurrentPlan ? (
-                            <div>
-                              <Button disabled fullWidth size="large">
-                                Current Plan
-                              </Button>
-                              {plan.name !== "free" && (
-                                <div style={{ marginTop: "1rem" }}>
-                                  <Button
-                                    onClick={handleCancelAction}
-                                    tone="critical"
-                                    size="large"
-                                    fullWidth
-                                  >
-                                    Cancel Subscription
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <Button
-                              onClick={() => handlePlanAction(plan.name)}
-                              variant={plan.recommended ? "primary" : "secondary"}
-                              size="large"
-                              fullWidth
-                              disabled={plan.name === "free"} // ✅ Désactiver le bouton pour le plan gratuit
-                            >
-                              {plan.name === "free" 
-                                ? "Free Plan" // ✅ Toujours afficher "Free Plan" sans option de downgrade
-                                : `${trialEligible && priceDisplay.trialInfo ? "Start Free Trial" : `Upgrade to ${plan.displayName}`}`
-                              }
+                        {isCurrentPlan ? (
+                          <div>
+                            <Button disabled fullWidth size="large">
+                              Current Plan
                             </Button>
-                          )}
+                            {plan.name !== "free" && (
+                              <div style={{ marginTop: "1rem" }}>
+                                <Button
+                                  onClick={handleCancelAction}
+                                  tone="critical"
+                                  size="large"
+                                  fullWidth
+                                >
+                                  Cancel Subscription
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <Button
+                            onClick={() => handlePlanAction(plan.name)}
+                            variant={plan.recommended ? "primary" : "secondary"}
+                            size="large"
+                            fullWidth
+                            disabled={plan.name === "free"} // Disable free plan button - use cancel instead
+                          >
+                            {plan.name === "free" 
+                              ? "Free Plan" 
+                              : `${trialEligible && priceDisplay.trialInfo ? "Start Free Trial" : `Upgrade to ${plan.displayName}`}`
+                            }
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </Card>

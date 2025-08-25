@@ -1,3 +1,4 @@
+// app/routes/app.tsx - FIXED navigation for App Store approval
 import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
@@ -32,6 +33,7 @@ export default function App() {
         <Link to="/app" rel="home">
           🏠 Dashboard
         </Link>
+        
         <Link to="/app/pricing">
           💰 Bulk Pricing
           {usagePercentage >= 100 && (
@@ -40,16 +42,23 @@ export default function App() {
             </span>
           )}
         </Link>
+        
         <Link to="/app/history">
-          📋 History
+          📋 Price History
           {subscription.usageCount > 0 && (
             <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#008060" }}>
               ({subscription.usageCount})
             </span>
           )}
         </Link>
+        
+        {/* ✅ FIX: Clear subscription navigation */}
         <Link to="/app/billing">
-          {subscription.planName === 'free' ? "⭐ Upgrade Plan" : "💳 Subscription"}
+          {subscription.planName === 'free' ? (
+            <span>⭐ Upgrade Plan</span>
+          ) : (
+            <span>💳 Subscription ({subscription.planName})</span>
+          )}
         </Link>
       </NavMenu>
       <Outlet />

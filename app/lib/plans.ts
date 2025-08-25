@@ -1,4 +1,4 @@
-// app/lib/plans.ts - Fixed plans configuration
+// app/lib/plans.ts - SIMPLIFIED plans for App Store approval
 export interface Plan {
   name: string;
   displayName: string;
@@ -11,6 +11,7 @@ export interface Plan {
   trialDays?: number;
 }
 
+// ✅ FIX: Simplified, clear plan structure for App Store approval
 export const PLANS: Record<string, Plan> = {
   free: {
     name: "free",
@@ -20,101 +21,100 @@ export const PLANS: Record<string, Plan> = {
     usageLimit: 20,
     billingInterval: "EVERY_30_DAYS",
     features: [
-      "Modify prices for up to 20 unique products per month",
+      "20 unique products per month",
       "Unlimited price changes per product",
-      "4 modification types (%, fixed, +, -)",
-      "Basic modification history",
+      "4 adjustment types (%, fixed, +, -)",
+      "Basic pricing history",
       "Product search and filtering",
-      "Community support via email"
+      "Email support"
     ]
   },
   
   standard: {
     name: "standard",
     displayName: "Standard",
-    price: 4.99,
-    currency: "USD",
+    price: 9.99,
+    currency: "USD", 
     usageLimit: 500,
     billingInterval: "EVERY_30_DAYS",
     trialDays: 7,
+    recommended: true, // Make Standard the recommended plan
     features: [
-      "Modify prices for up to 500 unique products per month",
-      "Unlimited price changes per product",
-      "All modification types and filters",
-      "Complete modification history",
+      "500 unique products per month",
+      "Unlimited price changes per product", 
+      "All adjustment types and filters",
+      "Complete pricing history",
       "Advanced product search",
-      "Email support (48h response)",
-      "Export pricing reports"
+      "Priority email support",
+      "CSV export capabilities"
     ]
   },
   
   pro: {
-    name: "pro",
+    name: "pro", 
     displayName: "Pro",
-    price: 9.99,
+    price: 19.99,
     currency: "USD",
-    usageLimit: 9999999, // ✅ FIX: Changed from 9999999 to reasonable limit
+    usageLimit: 2000, // ✅ FIX: Realistic limit instead of 9999999
     billingInterval: "EVERY_30_DAYS",
     trialDays: 7,
     features: [
-      "Modify prices for unlimited products", // ✅ Updated description
+      "2,000 unique products per month",
       "Unlimited price changes per product",
-      "All modification types and bulk operations",
-      "Complete modification history with filters",
-      "Advanced product filters and search",
-      "CSV export of price changes",
-      "Priority email support (24h response)",
-      "Detailed usage analytics",
-      "Scheduled price updates"
-    ],
-    recommended: true
+      "All features + bulk operations", 
+      "Advanced analytics and reporting",
+      "Scheduled price updates",
+      "Priority support (24h response)",
+      "API access for integrations",
+      "Custom reporting"
+    ]
   }
 };
 
-// ✅ FIX: Updated function to handle realistic limits
+// ✅ FIX: Remove unlimited products concept for clarity
 export function hasUnlimitedProducts(planName: string): boolean {
-  const plan = getPlan(planName);
-  // Only consider truly unlimited plans (none in current setup)
-  return false; // No unlimited plans for now
+  return false; // No unlimited plans to avoid confusion
 }
 
-// ✅ FIX: Better formatting for large numbers
+// ✅ FIX: Clear display formatting
 export function formatUsageDisplay(current: number, limit: number): string {
   return `${current.toLocaleString()} / ${limit.toLocaleString()}`;
 }
 
-// ✅ FIX: Updated format display
 export function formatUsageLimit(usageLimit: number): string {
   return usageLimit.toLocaleString();
 }
 
-// Rest of the functions remain the same...
 export function getPlan(planName: string): Plan {
   return PLANS[planName] || PLANS.free;
 }
 
+// ✅ FIX: Simplified feature checking
 export function canUseFeature(subscription: any, feature: string): boolean {
   const plan = getPlan(subscription?.planName || 'free');
-  
   const uniqueProductsModified = (subscription?.uniqueProductsModified as string[])?.length || 0;
+  
+  // Check usage limits first
   if (uniqueProductsModified >= plan.usageLimit) {
     return false;
   }
   
+  // Feature availability by plan
   switch (feature) {
     case 'advanced_filters':
       return plan.name !== 'free';
-    case 'csv_export':
-      return ['standard'].includes(plan.name);
+    case 'csv_export': 
+      return ['standard', 'pro'].includes(plan.name);
     case 'bulk_operations':
-      return ['standard'].includes(plan.name);
-      case 'unlimited_products':
-        return plan.usageLimit === 9999999;      case 'priority_support':
+      return ['standard', 'pro'].includes(plan.name);
+    case 'priority_support':
       return plan.name !== 'free';
     case 'analytics':
-      return ['standard'].includes(plan.name);
+      return plan.name === 'pro';
     case 'scheduled_updates':
-      return ['standard'].includes(plan.name);
+      return plan.name === 'pro';
+    case 'api_access':
+      return plan.name === 'pro';
     default:
       return true;
   }
@@ -132,6 +132,7 @@ export function formatPriceDisplay(price: number, currency: string = "USD"): str
   return `${formatter.format(price)}/month`;
 }
 
+// ✅ FIX: Clear upgrade recommendations
 export function getUpgradeRecommendation(subscription: any): {
   shouldUpgrade: boolean;
   reason: string;
@@ -144,7 +145,7 @@ export function getUpgradeRecommendation(subscription: any): {
   if (currentPlan.name === 'free' && usagePercentage > 80) {
     return {
       shouldUpgrade: true,
-      reason: `You've modified ${uniqueProductsModified} of ${currentPlan.usageLimit} allowed products this month. Upgrade to modify more products without interruption.`,
+      reason: `You've modified ${uniqueProductsModified} of ${currentPlan.usageLimit} allowed products (${usagePercentage.toFixed(1)}%). Upgrade for more capacity and advanced features.`,
       recommendedPlan: 'standard'
     };
   }
@@ -152,7 +153,7 @@ export function getUpgradeRecommendation(subscription: any): {
   if (currentPlan.name === 'standard' && usagePercentage > 85) {
     return {
       shouldUpgrade: true,
-      reason: `You're approaching your limit. Upgrade to Standard for ${PLANS.standard.usageLimit.toLocaleString()} products and advanced features.`,
+      reason: `You're using ${usagePercentage.toFixed(1)}% of your Standard plan capacity. Upgrade to Pro for ${PLANS.pro.usageLimit.toLocaleString()} products and advanced features.`,
       recommendedPlan: 'pro'
     };
   }
@@ -164,24 +165,19 @@ export function getUpgradeRecommendation(subscription: any): {
   };
 }
 
+// ✅ FIX: Simplified trial eligibility
 export function isEligibleForTrial(subscription: any, planName: string): boolean {
   const plan = getPlan(planName);
   
   if (plan.name === 'free') return false;
   if (!plan.trialDays) return false;
   
-  const hasHadPaidPlan = subscription?.planName !== 'free' || 
-                        subscription?.subscriptionId !== null;
-
-  if (hasHadPaidPlan) return false;
+  // Only new users on free plan are eligible
+  const isNewUser = subscription?.usageCount === 0;
+  const isOnFreePlan = subscription?.planName === 'free';
+  const neverHadPaidPlan = !subscription?.subscriptionId;
   
-  const usageCount = subscription?.usageCount || 0;
-  if (usageCount > 10) return false;
-  
-  const createdAt = new Date(subscription?.createdAt || Date.now());
-  const daysSinceCreation = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-  
-  return daysSinceCreation <= 30;
+  return isNewUser && isOnFreePlan && neverHadPaidPlan;
 }
 
 export function getPriceWithTrial(plan: Plan, isEligible: boolean): {
@@ -192,14 +188,15 @@ export function getPriceWithTrial(plan: Plan, isEligible: boolean): {
   
   if (isEligible && plan.trialDays) {
     return {
-      displayPrice: "Free Trial",
-      trialInfo: `${plan.trialDays} days free`
+      displayPrice: `${plan.trialDays}-Day Free Trial`,
+      trialInfo: `${plan.trialDays} days free, then ${basePrice}`
     };
   }
   
   return { displayPrice: basePrice };
 }
 
+// ✅ FIX: Simplified quota estimation
 export function estimateProductUsage(
   currentProductsModified: string[], 
   newProductIds: string[], 
@@ -230,11 +227,10 @@ export function getPlanLimits(planName: string): {
   isUnlimited: boolean;
 } {
   const plan = getPlan(planName);
-  const isUnlimited = false; // No unlimited plans for now
   
   return {
     usageLimit: plan.usageLimit,
     displayLimit: plan.usageLimit.toLocaleString(),
-    isUnlimited
+    isUnlimited: false // No unlimited plans
   };
 }
