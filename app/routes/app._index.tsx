@@ -1,4 +1,4 @@
-// app/routes/app._index.tsx - FIX: Auto-sync after billing based on original version
+// app/routes/app._index.tsx - COMPLETE FILE with modification tracking
 import { json, LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, Link, useSearchParams } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
@@ -24,7 +24,7 @@ import {
 } from "@shopify/polaris-icons";
 import { getSubscriptionStats } from "../models/subscription.server";
 import { getPlan, formatPriceDisplay, PLANS, formatUsageDisplay, hasUnlimitedProducts } from "../lib/plans";
-import { autoSyncSubscription } from "../lib/auto-sync.server"; // ✅ FIX: Use autoSyncSubscription instead of smartAutoSync
+import { autoSyncSubscription } from "../lib/auto-sync.server";
 import { useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -133,7 +133,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { syncUsageCount } = await import("../models/subscription.server");
     const syncResult = await syncUsageCount(session.shop);
     if (syncResult.synced) {
-      console.log(`🔄 Usage count synced: ${syncResult.oldCount} -> ${syncResult.newCount}`);
+      // console.log(`🔄 Usage count synced: ${syncResult.oldCount} -> ${syncResult.newCount}`);
     }
   } catch (syncError) {
     console.warn("⚠️ Usage count sync warning:", syncError);
@@ -249,12 +249,12 @@ export default function Index() {
                 <Button onClick={() => window.location.reload()}>
                   Refresh Dashboard
                 </Button>
-                <Link to="/app/manual-sync">
+                {/* <Link to="/app/manual-sync">
                   <Button>Manual Sync</Button>
-                </Link>
+                </Link> */}
               </div>
               <Text as="p" variant="bodySm" tone="subdued">
-                ✅ Current plan: <strong>{plan.displayName}</strong> | Limit: <strong>{isUnlimited ? 'Unlimited' : subscription.usageLimit.toLocaleString()}</strong> products/month
+                ✅ Current plan: <strong>{plan.displayName}</strong> | Limit: <strong>{isUnlimited ? 'Unlimited' : subscription.usageLimit.toLocaleString()}</strong> modifications/month
               </Text>
             </Banner>
           </Layout.Section>
@@ -269,9 +269,9 @@ export default function Index() {
                   <Button variant="primary">Try Again</Button>
                 </Link>
                 <span style={{ marginLeft: "1rem" }}>
-                  <Link to="/app/manual-sync">
+                  {/* <Link to="/app/manual-sync">
                     <Button>Manual Sync</Button>
-                  </Link>
+                  </Link> */}
                 </span>
               </div>
             </Banner>
@@ -289,19 +289,19 @@ export default function Index() {
                 <Button size="micro" onClick={() => window.location.reload()}>
                   Refresh
                 </Button>
-                <Link to="/app/manual-sync">
+                {/* <Link to="/app/manual-sync">
                   <Button size="micro">Manual Sync</Button>
-                </Link>
+                </Link> */}
               </div>
             </div>
           </Layout.Section>
         )}
 
-        {/* Usage warnings */}
+        {/* ✅ UPDATED: Usage warnings with modification language */}
         {isNearLimit && !billingStatus && (
           <Layout.Section>
             <Banner 
-              title={hasReachedLimit ? "Product Limit Reached" : "Approaching Product Limit"}
+              title={hasReachedLimit ? "Modification Limit Reached" : "Approaching Modification Limit"}
               tone={hasReachedLimit ? "critical" : "warning"}
               action={hasReachedLimit ? {
                 content: "Upgrade Now",
@@ -312,14 +312,14 @@ export default function Index() {
               }}
             >
               <Text as="p">
-                You've modified {subscription.usageCount.toLocaleString()} of {subscription.usageLimit.toLocaleString()} allowed unique products this month
+                You've used {subscription.usageCount.toLocaleString()} of {subscription.usageLimit.toLocaleString()} allowed modifications this month
                 {hasReachedLimit ? ". Upgrade to continue making changes." : "."}
               </Text>
             </Banner>
           </Layout.Section>
         )}
 
-        {/* Quick statistics */}
+        {/* ✅ UPDATED: Statistics cards with modification tracking */}
         <Layout.Section>
           <Grid>
             <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
@@ -345,12 +345,15 @@ export default function Index() {
                   <div style={{ marginBottom: "0.5rem" }}>
                     <Icon source={ChartVerticalIcon} />
                   </div>
-                  <Text as="h3" variant="headingMd">Products Modified</Text>
+                  <Text as="h3" variant="headingMd">Total Modifications</Text>
                   <Text as="p" variant="bodyLg">
-                    {formatUsageDisplay(subscription.usageCount, subscription.usageLimit)}
+                    {isUnlimited ? 
+                      `${subscription.usageCount.toLocaleString()} / unlimited` :
+                      `${subscription.usageCount.toLocaleString()} / ${subscription.usageLimit.toLocaleString()}`
+                    }
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    Unique products this month
+                    Product modifications this month
                   </Text>
                   {!isUnlimited && (
                     <div style={{ marginTop: "0.5rem" }}>
@@ -371,13 +374,18 @@ export default function Index() {
                   <div style={{ marginBottom: "0.5rem" }}>
                     <Icon source={CheckCircleIcon} />
                   </div>
-                  <Text as="h3" variant="headingMd">Products Remaining</Text>
-                  <Text as="p" variant="bodyLg" tone={typeof remainingProducts === 'string' || remainingProducts > 0 ? "success" : "critical"}>
-                    {typeof remainingProducts === 'string' ? remainingProducts : remainingProducts.toLocaleString()}
+                  <Text as="h3" variant="headingMd">Unique Products</Text>
+                  <Text as="p" variant="bodyLg" tone="success">
+                    {uniqueProductCount.toLocaleString()}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    {isUnlimited ? "No limits!" : `until ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}`}
+                    Different products modified
                   </Text>
+                  {uniqueProductCount > 0 && subscription.usageCount > uniqueProductCount && (
+                    <Text as="p" variant="bodySm">
+                      {(subscription.usageCount / uniqueProductCount).toFixed(1)} avg modifications per product
+                    </Text>
+                  )}
                 </div>
               </Card>
             </Grid.Cell>
@@ -388,12 +396,18 @@ export default function Index() {
                   <div style={{ marginBottom: "0.5rem" }}>
                     <Icon source={PriceListIcon} />
                   </div>
-                  <Text as="h3" variant="headingMd">Total Price Changes</Text>
-                  <Text as="p" variant="bodyLg">
-                    {(subscription.totalPriceChanges || 0).toLocaleString()}
+                  <Text as="h3" variant="headingMd">Remaining</Text>
+                  <Text as="p" variant="bodyLg" tone={
+                    isUnlimited ? "success" : 
+                    typeof remainingProducts === 'string' || remainingProducts > 0 ? "success" : "critical"
+                  }>
+                    {isUnlimited ? "Unlimited" : 
+                     typeof remainingProducts === 'string' ? remainingProducts : 
+                     remainingProducts.toLocaleString()}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    Individual changes made
+                    {isUnlimited ? "No limits!" : 
+                     `modifications until ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}`}
                   </Text>
                 </div>
               </Card>
@@ -401,7 +415,7 @@ export default function Index() {
           </Grid>
         </Layout.Section>
 
-        {/* Main actions */}
+        {/* ✅ UPDATED: Main actions with modification explanation */}
         <Layout.Section>
           <Grid>
             <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 4, lg: 8, xl: 8 }}>
@@ -411,7 +425,7 @@ export default function Index() {
                     <div>
                       <Text as="h2" variant="headingLg">Ready to optimize your pricing?</Text>
                       <Text as="p" tone="subdued">
-                        Use our intelligent pricing tools to boost your revenue. Modify as many prices as you want per product!
+                        Use our intelligent pricing tools to boost your revenue. Each product modification counts toward your monthly limit.
                       </Text>
                     </div>
                     
@@ -449,26 +463,24 @@ export default function Index() {
               <Card>
                 <div style={{ padding: "1.5rem" }}>
                   <BlockStack gap="300">
-                    <Text as="h3" variant="headingMd">How it works</Text>
+                    <Text as="h3" variant="headingMd">How quota works</Text>
                     
                     <div>
                       <Text as="p" variant="bodySm">
-                        <strong>1. Select</strong> products to modify (counts toward quota)
+                        <strong>📊 Each product modification = 1 usage</strong>
                       </Text>
                       <Text as="p" variant="bodySm">
-                        <strong>2. Choose</strong> adjustment type (%, fixed price, etc.)
+                        • Modify Product A → 1 usage
                       </Text>
                       <Text as="p" variant="bodySm">
-                        <strong>3. Preview</strong> changes before applying
+                        • Modify Product A again → 1 more usage
                       </Text>
                       <Text as="p" variant="bodySm">
-                        <strong>4. Apply</strong> updates (modify variants freely within each product)
+                        • Modify multiple variants of Product B → 1 usage total
                       </Text>
-                      {plan.name === "free" && (
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          <strong>5. Upgrade</strong> to modify more products per month
-                        </Text>
-                      )}
+                      <Text as="p" variant="bodySm">
+                        <strong>💡 Tip:</strong> You can modify all variants of a product in one action!
+                      </Text>
                     </div>
                   </BlockStack>
                 </div>

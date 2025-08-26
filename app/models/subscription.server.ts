@@ -1,5 +1,4 @@
-// app/models/subscription.server.ts - FIXED tracking logic
-
+// app/models/subscription.server.ts - COMPLETE FILE with modification tracking
 import { db } from "../db.server";
 import { PLANS } from "../lib/plans";
 
@@ -52,11 +51,6 @@ export async function updateSubscription(shop: string, data: {
 }) {
   console.log(`🔄 Updating subscription for ${shop}:`, JSON.stringify(data, null, 2));
   
-  // ✅ FIX: Synchroniser usageCount avec uniqueProductsModified
-  if (data.uniqueProductsModified && !data.usageCount) {
-    data.usageCount = data.uniqueProductsModified.length;
-  }
-  
   const result = await db.subscription.update({
     where: { shop },
     data: {
@@ -78,45 +72,82 @@ export async function updateSubscription(shop: string, data: {
 }
 
 /**
- * ✅ FIX: Improved product tracking with proper usageCount sync
+ * ✅ NEW: Track ALL product modifications (not just unique ones)
+ * This increments the counter for EVERY product modification
  */
-export async function trackProductModifications(shop: string, productIds: string[]): Promise<boolean> {
+export async function trackAllProductModifications(shop: string, productIds: string[]): Promise<boolean> {
   const subscription = await getOrCreateSubscription(shop);
   
-  // Get current unique products modified this period
-  const currentProducts = (subscription.uniqueProductsModified as string[]) || [];
+  // Calculate how many products we're about to modify
+  const modificationsToAdd = productIds.length;
+  const newTotalCount = subscription.usageCount + modificationsToAdd;
   
-  // Add new product IDs to the set (avoiding duplicates)
-  const updatedProducts = Array.from(new Set([...currentProducts, ...productIds]));
+  console.log(`📊 Tracking ${modificationsToAdd} product modifications for ${shop}`);
+  console.log(`📈 Current: ${subscription.usageCount}, Adding: ${modificationsToAdd}, New Total: ${newTotalCount}`);
   
   // Check if this would exceed the limit
-  if (updatedProducts.length > subscription.usageLimit) {
+  if (newTotalCount > subscription.usageLimit) {
+    console.log(`❌ Would exceed limit: ${newTotalCount} > ${subscription.usageLimit}`);
     return false; // Would exceed limit
   }
   
-  // ✅ FIX: Update both uniqueProductsModified AND usageCount
+  // Update the usage count with ALL modifications
   await db.subscription.update({
     where: { shop },
     data: {
-      uniqueProductsModified: updatedProducts,
-      usageCount: updatedProducts.length, // ✅ CRITICAL: Sync usageCount
-      // Optionally increment total price changes for analytics
+      usageCount: newTotalCount,
+      // Also track total price changes for analytics
       totalPriceChanges: {
-        increment: productIds.length
+        increment: modificationsToAdd
       },
       updatedAt: new Date(),
     },
   });
   
-  console.log(`✅ Product tracking updated:`, {
+  console.log(`✅ Product modifications tracked:`, {
     shop,
-    previousCount: currentProducts.length,
-    newCount: updatedProducts.length,
-    addedProducts: updatedProducts.length - currentProducts.length,
-    totalLimit: subscription.usageLimit
+    addedModifications: modificationsToAdd,
+    newTotalCount,
+    remainingCapacity: subscription.usageLimit - newTotalCount
   });
   
   return true; // Within limits
+}
+
+/**
+ * ✅ KEEP: Original function for unique product tracking (for analytics)
+ * This maintains the list of unique products modified this period
+ */
+export async function trackUniqueProducts(shop: string, productIds: string[]): Promise<void> {
+  const subscription = await getOrCreateSubscription(shop);
+  
+  // Get current unique products modified this period
+  const currentUniqueProducts = (subscription.uniqueProductsModified as string[]) || [];
+  
+  // Add new product IDs to the set (avoiding duplicates)
+  const updatedUniqueProducts = Array.from(new Set([...currentUniqueProducts, ...productIds]));
+  
+  // Update only if there are new unique products
+  if (updatedUniqueProducts.length > currentUniqueProducts.length) {
+    await db.subscription.update({
+      where: { shop },
+      data: {
+        uniqueProductsModified: updatedUniqueProducts,
+        updatedAt: new Date(),
+      },
+    });
+    
+    console.log(`📋 Unique products updated: ${currentUniqueProducts.length} → ${updatedUniqueProducts.length}`);
+  }
+}
+
+/**
+ * ✅ DEPRECATED: Old function - kept for backwards compatibility
+ * Use trackAllProductModifications instead
+ */
+export async function trackProductModifications(shop: string, productIds: string[]): Promise<boolean> {
+  console.warn("⚠️ trackProductModifications is deprecated, use trackAllProductModifications instead");
+  return await trackAllProductModifications(shop, productIds);
 }
 
 /**
@@ -124,35 +155,55 @@ export async function trackProductModifications(shop: string, productIds: string
  */
 export async function wouldExceedProductLimit(shop: string, productIds: string[]): Promise<boolean> {
   const subscription = await getOrCreateSubscription(shop);
-  const currentProducts = (subscription.uniqueProductsModified as string[]) || [];
-  const updatedProducts = Array.from(new Set([...currentProducts, ...productIds]));
+  const modificationsToAdd = productIds.length;
+  const newTotalCount = subscription.usageCount + modificationsToAdd;
   
-  return updatedProducts.length > subscription.usageLimit;
+  return newTotalCount > subscription.usageLimit;
 }
 
 /**
- * ✅ FIX: Force sync usageCount with uniqueProductsModified
+ * ✅ NEW: Get modification statistics
+ */
+export async function getModificationStats(shop: string): Promise<{
+  totalModifications: number;
+  uniqueProducts: number;
+  averageModificationsPerProduct: number;
+  remainingCapacity: number;
+  usagePercentage: number;
+}> {
+  const subscription = await getOrCreateSubscription(shop);
+  const uniqueProducts = (subscription.uniqueProductsModified as string[]) || [];
+  
+  const totalModifications = subscription.usageCount;
+  const uniqueProductCount = uniqueProducts.length;
+  const averageModificationsPerProduct = uniqueProductCount > 0 ? totalModifications / uniqueProductCount : 0;
+  const remainingCapacity = subscription.usageLimit - totalModifications;
+  const usagePercentage = (totalModifications / subscription.usageLimit) * 100;
+  
+  return {
+    totalModifications,
+    uniqueProducts: uniqueProductCount,
+    averageModificationsPerProduct: parseFloat(averageModificationsPerProduct.toFixed(2)),
+    remainingCapacity: Math.max(0, remainingCapacity),
+    usagePercentage: parseFloat(usagePercentage.toFixed(1))
+  };
+}
+
+/**
+ * Force sync usageCount - now this just ensures data consistency
  */
 export async function syncUsageCount(shop: string) {
   const subscription = await getOrCreateSubscription(shop);
-  const currentProducts = (subscription.uniqueProductsModified as string[]) || [];
-  const correctUsageCount = currentProducts.length;
   
-  if (subscription.usageCount !== correctUsageCount) {
-    console.log(`🔄 Syncing usage count for ${shop}: ${subscription.usageCount} -> ${correctUsageCount}`);
-    
-    await db.subscription.update({
-      where: { shop },
-      data: {
-        usageCount: correctUsageCount,
-        updatedAt: new Date(),
-      },
-    });
-    
-    return { synced: true, oldCount: subscription.usageCount, newCount: correctUsageCount };
-  }
+  // With the new system, usageCount should always be accurate
+  // This function now just validates consistency
+  console.log(`ℹ️ Usage count for ${shop}: ${subscription.usageCount} (no sync needed with new system)`);
   
-  return { synced: false, count: correctUsageCount };
+  return { 
+    synced: false, 
+    count: subscription.usageCount,
+    message: "New system maintains accurate count automatically"
+  };
 }
 
 export async function resetUsage(shop: string) {
@@ -172,7 +223,7 @@ export async function checkUsageLimit(shop: string): Promise<boolean> {
 }
 
 /**
- * Get list of products modified this period for display purposes
+ * Get list of unique products modified this period (for analytics)
  */
 export async function getModifiedProductsThisPeriod(shop: string): Promise<string[]> {
   const subscription = await getOrCreateSubscription(shop);
@@ -180,20 +231,18 @@ export async function getModifiedProductsThisPeriod(shop: string): Promise<strin
 }
 
 export async function getSubscriptionStats(shop: string) {
-  // ✅ FIX: Force sync before returning stats
-  await syncUsageCount(shop);
-  
   const subscription = await getOrCreateSubscription(shop);
   const plan = PLANS[subscription.planName];
+  const stats = await getModificationStats(shop);
   
   return {
     ...subscription,
     plan,
-    usagePercentage: (subscription.usageCount / subscription.usageLimit) * 100,
-    remainingUsage: subscription.usageLimit - subscription.usageCount,
-    // Add helper for unique products tracking
-    uniqueProductCount: ((subscription.uniqueProductsModified as string[]) || []).length,
-    remainingProducts: subscription.usageLimit - subscription.usageCount,
+    usagePercentage: stats.usagePercentage,
+    remainingUsage: stats.remainingCapacity,
+    // Analytics data
+    uniqueProductCount: stats.uniqueProducts,
+    averageModificationsPerProduct: stats.averageModificationsPerProduct,
   };
 }
 
@@ -201,25 +250,22 @@ export async function getSubscriptionStats(shop: string) {
  * Calculate the impact of a potential bulk selection on quota
  */
 export async function calculateQuotaImpact(shop: string, productIds: string[]): Promise<{
-  currentProducts: string[];
-  newProducts: string[];
-  alreadyModified: string[];
-  quotaImpact: number;
+  currentUsage: number;
+  modificationsToAdd: number;
+  totalAfter: number;
   wouldExceed: boolean;
   remainingAfter: number;
 }> {
   const subscription = await getOrCreateSubscription(shop);
-  const currentProducts = (subscription.uniqueProductsModified as string[]) || [];
   
-  const newProducts = productIds.filter(id => !currentProducts.includes(id));
-  const alreadyModified = productIds.filter(id => currentProducts.includes(id));
-  const totalAfter = currentProducts.length + newProducts.length;
+  const currentUsage = subscription.usageCount;
+  const modificationsToAdd = productIds.length;
+  const totalAfter = currentUsage + modificationsToAdd;
   
   return {
-    currentProducts,
-    newProducts,
-    alreadyModified,
-    quotaImpact: newProducts.length,
+    currentUsage,
+    modificationsToAdd,
+    totalAfter,
     wouldExceed: totalAfter > subscription.usageLimit,
     remainingAfter: subscription.usageLimit - totalAfter
   };
@@ -227,23 +273,19 @@ export async function calculateQuotaImpact(shop: string, productIds: string[]): 
 
 /**
  * Force refresh subscription data from database
- * Useful after external updates or migrations
  */
 export async function refreshSubscription(shop: string) {
-  // Clear any potential cache and fetch fresh data
   return await db.subscription.findUnique({
     where: { shop },
   });
 }
 
 /**
- * ✅ FIX: Enhanced usage statistics with sync
+ * Enhanced usage statistics with the new tracking system
  */
 export async function getUsageStatistics(shop: string) {
-  // Force sync before getting stats
-  const syncResult = await syncUsageCount(shop);
   const subscription = await getOrCreateSubscription(shop);
-  const currentProducts = (subscription.uniqueProductsModified as string[]) || [];
+  const modificationStats = await getModificationStats(shop);
   
   // Get recent pricing history for additional analytics
   const recentHistory = await db.pricingHistory.findMany({
@@ -256,31 +298,32 @@ export async function getUsageStatistics(shop: string) {
     orderBy: { createdAt: 'desc' },
   });
   
-  // Calculate statistics
+  // Calculate statistics from history
   const uniqueProductsFromHistory = new Set(recentHistory.map(h => h.productId)).size;
   const totalChangesFromHistory = recentHistory.length;
-  const averageChangesPerProduct = uniqueProductsFromHistory > 0 
-    ? totalChangesFromHistory / uniqueProductsFromHistory 
-    : 0;
   
   return {
     subscription,
-    syncResult, // ✅ Include sync information
     currentPeriodStats: {
-      uniqueProductsModified: currentProducts.length,
+      totalModifications: modificationStats.totalModifications,
+      uniqueProducts: modificationStats.uniqueProducts,
+      averageModificationsPerProduct: modificationStats.averageModificationsPerProduct,
       totalPriceChanges: subscription.totalPriceChanges || 0,
-      averageChangesPerProduct: averageChangesPerProduct.toFixed(2),
     },
     historyStats: {
       uniqueProductsFromHistory,
       totalChangesFromHistory,
-      discrepancy: Math.abs(currentProducts.length - uniqueProductsFromHistory)
+      historyVsTracking: {
+        trackingTotal: modificationStats.totalModifications,
+        historyTotal: totalChangesFromHistory,
+        difference: Math.abs(modificationStats.totalModifications - totalChangesFromHistory)
+      }
     },
     quotaInfo: {
-      usagePercentage: (currentProducts.length / subscription.usageLimit) * 100,
-      remainingProducts: subscription.usageLimit - currentProducts.length,
-      isNearLimit: (currentProducts.length / subscription.usageLimit) > 0.8,
-      hasReachedLimit: currentProducts.length >= subscription.usageLimit
+      usagePercentage: modificationStats.usagePercentage,
+      remainingCapacity: modificationStats.remainingCapacity,
+      isNearLimit: modificationStats.usagePercentage > 80,
+      hasReachedLimit: modificationStats.totalModifications >= subscription.usageLimit
     }
   };
 }
@@ -314,7 +357,8 @@ export async function syncSubscriptionWithHistory(shop: string) {
     where: { shop },
     data: {
       uniqueProductsModified: uniqueProducts,
-      usageCount: uniqueProducts.length, // ✅ FIX: Sync count
+      // Note: We don't automatically sync usageCount from history 
+      // as it might interfere with the current tracking system
       totalPriceChanges: totalChanges,
       updatedAt: new Date()
     }

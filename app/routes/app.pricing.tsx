@@ -34,11 +34,12 @@ import { UPDATE_PRODUCT_VARIANTS_BULK } from "../graphql/mutations/products";
 import { db } from "../db.server";
 import { 
   getOrCreateSubscription, 
-  trackProductModifications, 
+  trackAllProductModifications,
+  trackUniqueProducts,
   wouldExceedProductLimit,
   getModifiedProductsThisPeriod
 } from "../models/subscription.server";
-import { canUseFeature } from "../lib/plans";
+import { canUseFeature, hasUnlimitedProducts } from "../lib/plans";
 
 interface ActionResult {
   results: Array<{
@@ -52,12 +53,12 @@ interface ActionResult {
   }>;
   totalUpdated: number;
   totalAttempted: number;
-  uniqueProductsModified?: number;
+  modificationsUsed?: number;
   message?: string;
   globalError?: string;
   redirectToUpgrade?: boolean;
   quotaInfo?: {
-    currentProducts: number;
+    currentModifications: number;
     limit: number;
     wouldAdd: number;
     wouldTotal: number;
@@ -94,6 +95,7 @@ interface GraphQLError {
   path?: Array<string | number>;
   extensions?: Record<string, any>;
 }
+
 interface GraphQLResponse {
   data?: any;
   errors?: GraphQLError[];
@@ -212,24 +214,23 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<Response>
       });
     }
 
-    // Extract unique product IDs from selection
+    // Extract product IDs from selection
     const productIds = selectedProducts.map((p: any) => p.id);
     
-    // Check if this would exceed the PRODUCT limit
+    // ✅ NEW: Check if this would exceed the MODIFICATION limit
     const wouldExceed = await wouldExceedProductLimit(session.shop, productIds);
     if (wouldExceed) {
       const subscription = await getOrCreateSubscription(session.shop);
-      const currentProductsModified = (subscription.uniqueProductsModified as string[]) || [];
-      const newProducts = productIds.filter((id: string) => !currentProductsModified.includes(id));
+      const modificationsToAdd = productIds.length;
       
       return json({
-        globalError: `This would modify ${newProducts.length} new product(s), exceeding your monthly limit of ${subscription.usageLimit} unique products. Please upgrade your plan or select fewer products.`,
+        globalError: `This would add ${modificationsToAdd} modification(s), exceeding your monthly limit of ${subscription.usageLimit} total modifications. Current usage: ${subscription.usageCount}. Please upgrade your plan or select fewer products.`,
         redirectToUpgrade: true,
         quotaInfo: {
-          currentProducts: currentProductsModified.length,
+          currentModifications: subscription.usageCount,
           limit: subscription.usageLimit,
-          wouldAdd: newProducts.length,
-          wouldTotal: currentProductsModified.length + newProducts.length
+          wouldAdd: modificationsToAdd,
+          wouldTotal: subscription.usageCount + modificationsToAdd
         }
       });
     }
@@ -330,91 +331,91 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<Response>
           continue;
         }
 
-             // ✅ FIX: Proper GraphQL response handling with TypeScript
-             console.log(`🚀 Updating ${variantsToUpdate.length} variants for ${productData.title}`);
+        // ✅ FIX: Proper GraphQL response handling with TypeScript
+        console.log(`🚀 Updating ${variantsToUpdate.length} variants for ${productData.title}`);
         
-             const response = await admin.graphql(UPDATE_PRODUCT_VARIANTS_BULK, {
-               variables: {
-                 productId: productData.id,
-                 variants: variantsToUpdate,
-               },
-             });
-             
-             // ✅ Type cast the response to our GraphQL interface
-             const result = await response.json() as GraphQLResponse;
-             
-             // ✅ Now TypeScript knows about the errors property
-             if (result.errors && result.errors.length > 0) {
-               console.error(`❌ GraphQL errors for product ${productData.title}:`, result.errors);
-               const errorMessages = result.errors.map(error => error.message);
-               
-               productData.variants.forEach((variant: any, index: number) => {
-                 results.push({
-                   variantId: variant.id,
-                   variantTitle: variant.title,
-                   productTitle: productData.title,
-                   oldPrice: variant.currentPrice,
-                   newPrice: parseFloat(variantsToUpdate[index]?.price || "0"),
-                   success: false,
-                   errors: [{ message: errorMessages.join(", ") }],
-                 });
-               });
-               continue;
-             }
-             
-             // ✅ Check for successful response with data
-             if (result.data?.productVariantsBulkUpdate) {
-               const bulkResult = result.data.productVariantsBulkUpdate;
-               
-               // Process each variant result
-               productData.variants.forEach((variant: any, index: number) => {
-                 // ✅ Safe check for userErrors
-                 const userErrors = bulkResult.userErrors || [];
-                 const hasErrors = Array.isArray(userErrors) && 
-                   userErrors.some((error: any) => 
-                     error.field && error.field.includes(`variants[${index}]`)
-                   );
-                 
-                 const variantErrors = hasErrors 
-                   ? userErrors.filter((error: any) => 
-                       error.field && error.field.includes(`variants[${index}]`)
-                     )
-                   : [];
-                 
-                 results.push({
-                   variantId: variant.id,
-                   variantTitle: variant.title,
-                   productTitle: productData.title,
-                   oldPrice: variant.currentPrice,
-                   newPrice: parseFloat(variantsToUpdate[index]?.price || "0"),
-                   success: !hasErrors,
-                   errors: variantErrors,
-                 });
-               });
-               
-               // ✅ Safe check for success
-               const userErrors = bulkResult.userErrors || [];
-               if (userErrors.length === 0) {
-                 processedProducts++;
-                 console.log(`✅ Successfully updated product: ${productData.title}`);
-               } else {
-                 console.warn(`⚠️ Partial success for product ${productData.title}:`, userErrors);
-               }
-             } else {
-               // ✅ Handle case where response structure is unexpected
-               console.error(`❌ Unexpected response structure for product ${productData.title}`, result);
-               productData.variants.forEach((variant: any, index: number) => {
-                 results.push({
-                   variantId: variant.id,
-                   variantTitle: variant.title,
-                   productTitle: productData.title,
-                   oldPrice: variant.currentPrice,
-                   newPrice: parseFloat(variantsToUpdate[index]?.price || "0"),
-                   success: false,
-                   errors: [{ message: "Unexpected response from Shopify API" }],
-                 });
-               });
-             }
+        const response = await admin.graphql(UPDATE_PRODUCT_VARIANTS_BULK, {
+          variables: {
+            productId: productData.id,
+            variants: variantsToUpdate,
+          },
+        });
+        
+        // ✅ Type cast the response to our GraphQL interface
+        const result = await response.json() as GraphQLResponse;
+        
+        // ✅ Now TypeScript knows about the errors property
+        if (result.errors && result.errors.length > 0) {
+          console.error(`❌ GraphQL errors for product ${productData.title}:`, result.errors);
+          const errorMessages = result.errors.map(error => error.message);
+          
+          productData.variants.forEach((variant: any, index: number) => {
+            results.push({
+              variantId: variant.id,
+              variantTitle: variant.title,
+              productTitle: productData.title,
+              oldPrice: variant.currentPrice,
+              newPrice: parseFloat(variantsToUpdate[index]?.price || "0"),
+              success: false,
+              errors: [{ message: errorMessages.join(", ") }],
+            });
+          });
+          continue;
+        }
+        
+        // ✅ Check for successful response with data
+        if (result.data?.productVariantsBulkUpdate) {
+          const bulkResult = result.data.productVariantsBulkUpdate;
+          
+          // Process each variant result
+          productData.variants.forEach((variant: any, index: number) => {
+            // ✅ Safe check for userErrors
+            const userErrors = bulkResult.userErrors || [];
+            const hasErrors = Array.isArray(userErrors) && 
+              userErrors.some((error: any) => 
+                error.field && error.field.includes(`variants[${index}]`)
+              );
+            
+            const variantErrors = hasErrors 
+              ? userErrors.filter((error: any) => 
+                  error.field && error.field.includes(`variants[${index}]`)
+                )
+              : [];
+            
+            results.push({
+              variantId: variant.id,
+              variantTitle: variant.title,
+              productTitle: productData.title,
+              oldPrice: variant.currentPrice,
+              newPrice: parseFloat(variantsToUpdate[index]?.price || "0"),
+              success: !hasErrors,
+              errors: variantErrors,
+            });
+          });
+          
+          // ✅ Safe check for success
+          const userErrors = bulkResult.userErrors || [];
+          if (userErrors.length === 0) {
+            processedProducts++;
+            console.log(`✅ Successfully updated product: ${productData.title}`);
+          } else {
+            console.warn(`⚠️ Partial success for product ${productData.title}:`, userErrors);
+          }
+        } else {
+          // ✅ Handle case where response structure is unexpected
+          console.error(`❌ Unexpected response structure for product ${productData.title}`, result);
+          productData.variants.forEach((variant: any, index: number) => {
+            results.push({
+              variantId: variant.id,
+              variantTitle: variant.title,
+              productTitle: productData.title,
+              oldPrice: variant.currentPrice,
+              newPrice: parseFloat(variantsToUpdate[index]?.price || "0"),
+              success: false,
+              errors: [{ message: "Unexpected response from Shopify API" }],
+            });
+          });
+        }
         
       } catch (productError: any) {
         console.error(`❌ Error processing product ${productData.title}:`, productError);
@@ -435,7 +436,7 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<Response>
     const successfulUpdates = results.filter((r: any) => r.success);
     console.log(`📊 Results: ${successfulUpdates.length} successful, ${results.length - successfulUpdates.length} failed`);
 
-    // Track product modifications if we have successful updates
+    // ✅ NEW: Track ALL product modifications (each product = one modification)
     if (successfulUpdates.length > 0) {
       const successfulProductIds = Array.from(new Set(
         successfulUpdates.map((result: any) => 
@@ -445,12 +446,16 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<Response>
         ).filter(Boolean)
       ));
       
-      console.log(`📋 Tracking ${successfulProductIds.length} unique products`);
+      console.log(`📋 Tracking ${successfulProductIds.length} product modifications`);
       
-      const trackingSuccess = await trackProductModifications(session.shop, successfulProductIds);
+      // Track ALL modifications - each product counts as one modification
+      const trackingSuccess = await trackAllProductModifications(session.shop, successfulProductIds);
       if (!trackingSuccess) {
         console.warn("⚠️ Product tracking failed - limit may have been reached during processing");
       }
+      
+      // Also track unique products for analytics
+      await trackUniqueProducts(session.shop, successfulProductIds);
     }
 
     // Save to history (with better error handling)
@@ -507,14 +512,14 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<Response>
       });
     }
 
-    const successMessage = `Successfully updated ${successfulUpdates.length} price(s) across ${uniqueProductsInBatch} unique product(s)`;
+    const successMessage = `Successfully updated ${successfulUpdates.length} price(s). This counts as ${uniqueProductsInBatch} modification(s) toward your monthly limit.`;
     console.log(`🎉 ${successMessage}`);
 
     return json({ 
       results, 
       totalUpdated: successfulUpdates.length,
       totalAttempted: results.length,
-      uniqueProductsModified: uniqueProductsInBatch,
+      modificationsUsed: uniqueProductsInBatch,
       message: successMessage,
     });
     
@@ -570,7 +575,8 @@ export default function Pricing() {
   const pagination = data.pagination;
   const currentPage = data.currentPage;
 
-  const usagePercentage = subscription.usageLimit > 0 
+  const isUnlimited = hasUnlimitedProducts(subscription.planName);
+  const usagePercentage = subscription.usageLimit > 0 && !isUnlimited
     ? (subscription.usageCount / subscription.usageLimit) * 100 
     : 0;
   
@@ -588,16 +594,23 @@ export default function Pricing() {
   
   const isLoading = navigation.state === "submitting";
 
-  // NEW: Calculate how many NEW products would be modified
-  const getNewProductsCount = () => {
-    const currentModified = (subscription.uniqueProductsModified as string[]) || [];
+  // ✅ NEW: Calculate modification impact (not unique products)
+  const getModificationImpact = () => {
     const selectedArray = Array.from(selectedProducts);
-    const newProducts = selectedArray.filter(id => !currentModified.includes(id));
-    return newProducts.length;
+    const modificationsToAdd = selectedArray.length; // Each selected product = 1 modification
+    const totalAfter = subscription.usageCount + modificationsToAdd;
+    const wouldExceed = !isUnlimited && totalAfter > subscription.usageLimit;
+    
+    return {
+      modificationsToAdd,
+      totalAfter,
+      wouldExceed,
+      remaining: isUnlimited ? 999999 : Math.max(0, subscription.usageLimit - totalAfter)
+    };
   };
 
-  const newProductsCount = getNewProductsCount();
-  const wouldExceedAfterSelection = (subscription.usageCount + newProductsCount) > subscription.usageLimit;
+  const modificationImpact = getModificationImpact();
+  const hasReachedLimit = !isUnlimited && usagePercentage >= 100;
 
   // Advanced filtering logic
   useEffect(() => {
@@ -743,7 +756,7 @@ export default function Pricing() {
         {product.status}
       </Badge>,
       `${variants.length} variant${variants.length !== 1 ? 's' : ''}`,
-      variants.length > 0 ? `$${variants[0].node.price}` : "N/A",
+      variants.length > 0 ? `${variants[0].node.price}` : "N/A",
       isSelected && variants.length > 0
         ? <Text key={`new-price-${product.id}`} as="span" fontWeight="semibold" tone="success">
             ${calculateNewPrice(parseFloat(variants[0].node.price)).toFixed(2)}
@@ -751,8 +764,6 @@ export default function Pricing() {
         : <Text key={`no-price-${product.id}`} as="span" tone="subdued">-</Text>,
     ];
   });
-
-  const hasReachedLimit = usagePercentage >= 100;
 
   const toastMarkup = showToast ? (
     <Toast content="Prices updated successfully!" onDismiss={() => setShowToast(false)} />
@@ -770,13 +781,10 @@ export default function Pricing() {
       {toastMarkup}
       <Page 
         title="Dynamic Pricing" 
-        subtitle="Bulk update product prices - quota based on unique products modified"
+        subtitle="Bulk update product prices - each product modification counts toward your limit"
         backAction={{ content: "← Dashboard", url: "/app" }}
         primaryAction={
           <ButtonGroup>
-            {/* <Button onClick={() => window.location.reload()}>
-              🔄 Refresh
-            </Button> */}
             <Button disabled>
               📤 Export Changes
             </Button>
@@ -784,30 +792,34 @@ export default function Pricing() {
         }
       >
         <Layout>
-          {/* Updated Usage Progress */}
+          {/* ✅ UPDATED: Usage Progress with modification tracking */}
           <Layout.Section>
             <Card>
               <div style={{ padding: "1rem" }}>
                 <InlineStack align="space-between">
                   <div>
                     <Text as="h3" variant="headingMd">
-                      Monthly Usage: {subscription.usageCount} / {subscription.usageLimit} unique products
+                      Monthly Usage: {subscription.usageCount} / {isUnlimited ? 'unlimited' : subscription.usageLimit} modifications
                     </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
-                      Plan: {subscription.planName.charAt(0).toUpperCase() + subscription.planName.slice(1)}
+                      Plan: {subscription.planName.charAt(0).toUpperCase() + subscription.planName.slice(1)} • Each product = 1 modification
                     </Text>
-                    {newProductsCount > 0 && (
-                      <Text as="p" variant="bodySm" tone={wouldExceedAfterSelection ? "critical" : "success"}>
-                        Selected: {newProductsCount} new product(s) • Would total: {subscription.usageCount + newProductsCount}
+                    {modificationImpact.modificationsToAdd > 0 && (
+                      <Text as="p" variant="bodySm" tone={modificationImpact.wouldExceed ? "critical" : "success"}>
+                        Selected: {modificationImpact.modificationsToAdd} modification(s) • 
+                        Would total: {modificationImpact.totalAfter} • 
+                        Remaining after: {isUnlimited ? "unlimited" : modificationImpact.remaining}
                       </Text>
                     )}
                   </div>
                   <div style={{ width: "200px" }}>
-                    <ProgressBar 
-                      progress={usagePercentage} 
-                      size="small"
-                      tone={usagePercentage >= 100 ? "critical" : "primary"}
-                    />
+                    {!isUnlimited && (
+                      <ProgressBar 
+                        progress={usagePercentage} 
+                        size="small"
+                        tone={hasReachedLimit ? "critical" : "primary"}
+                      />
+                    )}
                   </div>
                 </InlineStack>
               </div>
@@ -815,7 +827,7 @@ export default function Pricing() {
           </Layout.Section>
 
           {/* Usage warning banner */}
-          {usagePercentage > 80 && subscription.planName === 'free' && (
+          {usagePercentage > 80 && subscription.planName === 'free' && !isUnlimited && (
             <Layout.Section>
               <Banner 
                 tone={hasReachedLimit ? "critical" : "warning"}
@@ -836,13 +848,13 @@ export default function Pricing() {
             </Layout.Section>
           )}
 
-          {/* Updated warning banners */}
-          {wouldExceedAfterSelection && (
+          {/* ✅ UPDATED: Warning banner for modification limit */}
+          {modificationImpact.wouldExceed && !isUnlimited && (
             <Layout.Section>
-              <Banner tone="critical" title="Product Limit Would Be Exceeded">
+              <Banner tone="critical" title="Modification Limit Would Be Exceeded">
                 <Text as="p">
-                  You've selected {newProductsCount} new product(s) which would exceed your monthly limit of {subscription.usageLimit} unique products.
-                  Please select fewer products or upgrade your plan.
+                  You've selected {modificationImpact.modificationsToAdd} product(s) which would exceed your monthly limit of {subscription.usageLimit} modifications.
+                  Current usage: {subscription.usageCount}. Please select fewer products or upgrade your plan.
                 </Text>
               </Banner>
             </Layout.Section>
@@ -857,7 +869,7 @@ export default function Pricing() {
                   {actionData.quotaInfo && (
                     <div style={{ marginTop: "0.5rem" }}>
                       <Text as="p" variant="bodySm">
-                        Current: {actionData.quotaInfo.currentProducts} products • 
+                        Current: {actionData.quotaInfo.currentModifications} modifications • 
                         Limit: {actionData.quotaInfo.limit} • 
                         Would add: {actionData.quotaInfo.wouldAdd}
                       </Text>
@@ -966,7 +978,7 @@ export default function Pricing() {
             </Card>
           </Layout.Section>
 
-          {/* Pricing Configuration */}
+          {/* ✅ UPDATED: Pricing Configuration with modification explanation */}
           <Layout.Section>
             <Card>
               <div style={{ padding: "1rem" }}>
@@ -1016,19 +1028,19 @@ export default function Pricing() {
                         submit
                         variant="primary"
                         loading={isLoading}
-                        disabled={selectedProducts.size === 0 || wouldExceedAfterSelection}
+                        disabled={selectedProducts.size === 0 || modificationImpact.wouldExceed}
                         size="large"
                       >
                         {isLoading ? "Processing..." : 
-                         wouldExceedAfterSelection ? "Would Exceed Product Limit" :
-                         `Update ${selectedProducts.size} Product(s) ${newProductsCount > 0 ? `(${newProductsCount} new)` : ''}`
+                         modificationImpact.wouldExceed ? "Would Exceed Modification Limit" :
+                         `Update ${selectedProducts.size} Product(s) (${modificationImpact.modificationsToAdd} modifications)`
                         }
                       </Button>
                       
                       {selectedProducts.size > 0 && (
                         <div style={{ marginTop: "0.5rem" }}>
                           <Text as="p" variant="bodySm" tone="subdued">
-                            This will count {newProductsCount} new product(s) toward your monthly quota
+                            This will use {modificationImpact.modificationsToAdd} modification(s) from your monthly quota
                           </Text>
                         </div>
                       )}
@@ -1138,26 +1150,29 @@ export default function Pricing() {
             </Layout.Section>
           )}
 
-          {/* Help Section */}
+          {/* ✅ UPDATED: Help Section with modification explanation */}
           <Layout.Section>
             <Card>
               <div style={{ padding: "1.5rem", backgroundColor: "#f8f9fa" }}>
                 <BlockStack gap="300">
-                  <Text as="h3" variant="headingMd">💡 Pro Tips</Text>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1rem" }}>
+                  <Text as="h3" variant="headingMd">💡 How Modifications Work</Text>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem" }}>
                     <div>
                       <Text as="p" variant="bodySm">
-                        <Text as="span" fontWeight="semibold">Product-Based Quota:</Text> Each unique product counts as 1 toward your monthly limit, regardless of how many variants you modify.
+                        <Text as="span" fontWeight="semibold">Modification-Based Quota:</Text> Each time you modify a product, it counts as 1 modification toward your monthly limit, regardless of how many variants that product has.
                       </Text>
                     </div>
                     <div>
                       <Text as="p" variant="bodySm">
-                        <Text as="span" fontWeight="semibold">Preview Changes:</Text> Always check the "New Price" column before applying updates.
+                        <Text as="span" fontWeight="semibold">Examples:</Text>
+                        <br />• Modify Product A (3 variants) = 1 modification
+                        <br />• Modify Product A again later = 1 more modification  
+                        <br />• Modify 5 different products = 5 modifications
                       </Text>
                     </div>
                     <div>
                       <Text as="p" variant="bodySm">
-                        <Text as="span" fontWeight="semibold">Multiple Updates:</Text> You can modify the same product multiple times within the month without using additional quota.
+                        <Text as="span" fontWeight="semibold">Pro Tip:</Text> Update all variants of a product in one action to maximize efficiency. You can modify colors, sizes, etc. of the same product and it still counts as just 1 modification.
                       </Text>
                     </div>
                   </div>

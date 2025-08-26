@@ -3,7 +3,7 @@
 client_id = "c4ecbd02835e553520eec62af072c81a"
 name = "PriceBoost - Bulk Price Editor"
 handle = "pricefy-1"
-application_url = "https://flags-kenny-keyword-prostate.trycloudflare.com"
+application_url = "https://gods-affordable-oils-backed.trycloudflare.com"
 embedded = true
 
 [build]
@@ -35,7 +35,7 @@ uri = "/webhooks/gdpr"
 scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = ["https://flags-kenny-keyword-prostate.trycloudflare.com/auth/callback", "https://flags-kenny-keyword-prostate.trycloudflare.com/auth/shopify/callback", "https://flags-kenny-keyword-prostate.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://gods-affordable-oils-backed.trycloudflare.com/auth/callback", "https://gods-affordable-oils-backed.trycloudflare.com/auth/shopify/callback", "https://gods-affordable-oils-backed.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false
