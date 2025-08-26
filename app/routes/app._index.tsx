@@ -249,9 +249,6 @@ export default function Index() {
                 <Button onClick={() => window.location.reload()}>
                   Refresh Dashboard
                 </Button>
-                {/* <Link to="/app/manual-sync">
-                  <Button>Manual Sync</Button>
-                </Link> */}
               </div>
               <Text as="p" variant="bodySm" tone="subdued">
                 ✅ Current plan: <strong>{plan.displayName}</strong> | Limit: <strong>{isUnlimited ? 'Unlimited' : subscription.usageLimit.toLocaleString()}</strong> modifications/month
@@ -268,32 +265,8 @@ export default function Index() {
                 <Link to="/app/billing">
                   <Button variant="primary">Try Again</Button>
                 </Link>
-                <span style={{ marginLeft: "1rem" }}>
-                  {/* <Link to="/app/manual-sync">
-                    <Button>Manual Sync</Button>
-                  </Link> */}
-                </span>
               </div>
             </Banner>
-          </Layout.Section>
-        )}
-
-        {/* ✅ FIX: Plan mismatch detection */}
-        {!billingStatus && plan.name === 'free' && (
-          <Layout.Section>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <Text as="p" variant="bodySm" tone="subdued">
-                If you recently upgraded but still see the free plan, try refreshing or manual sync.
-              </Text>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <Button size="micro" onClick={() => window.location.reload()}>
-                  Refresh
-                </Button>
-                {/* <Link to="/app/manual-sync">
-                  <Button size="micro">Manual Sync</Button>
-                </Link> */}
-              </div>
-            </div>
           </Layout.Section>
         )}
 
